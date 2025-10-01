@@ -38,7 +38,7 @@ settings:
   # auto  — если установлен AdvancedEnchantments, применяется режим “книга по клику”, иначе обычная наковальня
   # anvil — всегда через наковальню
   # click — всегда по клику в инвентаре
-  anvil_mode: auto
+  anvil_mode: anvil
 
 database:
   # База данных: sqlite — локальный файл .db; mysql — внешний сервер MySQL/MariaDB.
