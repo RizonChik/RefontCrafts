@@ -80,10 +80,12 @@ public class AnvilListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onTake(InventoryClickEvent e) {
         if (e.getInventory().getType() != InventoryType.ANVIL) return;
-        if (e.getRawSlot() != 2) return;
         if (!(e.getWhoClicked() instanceof Player)) return;
+        if (e.getRawSlot() != 2) return;
 
         AnvilInventory inv = (AnvilInventory) e.getInventory();
+        Player p = (Player) e.getWhoClicked();
+
         ItemStack resultSlot = inv.getItem(2);
         if (isAir(resultSlot)) return;
 
@@ -110,9 +112,6 @@ public class AnvilListener implements Listener {
         }
         if (match == null) return;
 
-        e.setCancelled(true);
-        Player p = (Player) e.getWhoClicked();
-
         int needA = Math.max(1, match.left.getAmount());
         int needB = Math.max(1, match.right.getAmount());
         int haveA = a.getAmount();
@@ -121,28 +120,100 @@ public class AnvilListener implements Listener {
         if (setsByItems <= 0) return;
 
         int perSet = Math.max(1, match.result.getAmount());
+        int maxStack = Math.max(1, match.result.getMaxStackSize());
+        int previewSets = Math.max(1, resultSlot.getAmount() / perSet);
+
         int setsByXP = match.cost > 0 ? (p.getLevel() / match.cost) : setsByItems;
 
-        int setsWanted;
-        if (e.getClick() == ClickType.SHIFT_LEFT || e.getClick() == ClickType.SHIFT_RIGHT) {
-            setsWanted = Math.min(setsByItems, setsByXP);
-        } else {
-            int previewSets = Math.max(1, resultSlot.getAmount() / perSet);
-            setsWanted = Math.min(previewSets, Math.min(setsByItems, setsByXP));
+        boolean shift = e.isShiftClick();
+        boolean numberKey = (e.getClick() == ClickType.NUMBER_KEY);
+        int setsCap = Math.min(setsByItems, setsByXP);
+        int setsWanted = shift ? setsCap : Math.min(previewSets, setsCap);
+
+        if (setsWanted <= 0) {
+            if (match.cost > 0 && p.getLevel() < match.cost) {
+                p.sendMessage(plugin.msg("not_enough_levels", "cost", String.valueOf(match.cost)));
+            }
+            e.setCancelled(true);
+            return;
         }
-        if (setsWanted <= 0) return;
 
         int desiredItems = perSet * setsWanted;
-        ItemStack giveAll = match.result.clone();
-        giveAll.setAmount(desiredItems);
+        int acceptedItems = 0;
+        ItemStack base = match.result.clone();
 
-        Map<Integer, ItemStack> leftover = p.getInventory().addItem(giveAll);
-        int acceptedItems = desiredItems;
-        if (!leftover.isEmpty()) {
-            int leftAmount = 0;
-            for (ItemStack it : leftover.values()) if (it != null) leftAmount += it.getAmount();
-            acceptedItems = Math.max(0, desiredItems - leftAmount);
+        e.setCancelled(true);
+
+        if (numberKey) {
+            int hotbar = e.getHotbarButton();
+            if (hotbar >= 0) {
+                ItemStack slot = p.getInventory().getItem(hotbar);
+                if (slot == null || slot.getType() == Material.AIR) {
+                    int put = Math.min(desiredItems, maxStack);
+                    ItemStack toSet = base.clone();
+                    toSet.setAmount(put);
+                    p.getInventory().setItem(hotbar, toSet);
+                    acceptedItems += put;
+                } else if (slot.isSimilar(base)) {
+                    int can = Math.max(0, maxStack - slot.getAmount());
+                    int put = Math.min(desiredItems, can);
+                    if (put > 0) {
+                        slot.setAmount(slot.getAmount() + put);
+                        p.getInventory().setItem(hotbar, slot);
+                        acceptedItems += put;
+                    }
+                }
+                int rest = desiredItems - acceptedItems;
+                if (rest > 0) {
+                    Map<Integer, ItemStack> rem = p.getInventory().addItem(ItemUtil.cloneWithAmount(base, rest));
+                    if (!rem.isEmpty()) {
+                        int back = 0;
+                        for (ItemStack it : rem.values()) if (it != null) back += it.getAmount();
+                        acceptedItems += Math.max(0, rest - back);
+                    }
+                }
+            }
+        } else if (shift) {
+            Map<Integer, ItemStack> rem = p.getInventory().addItem(ItemUtil.cloneWithAmount(base, desiredItems));
+            if (rem.isEmpty()) {
+                acceptedItems = desiredItems;
+            } else {
+                int back = 0;
+                for (ItemStack it : rem.values()) if (it != null) back += it.getAmount();
+                acceptedItems = Math.max(0, desiredItems - back);
+            }
+        } else {
+            ItemStack cursor = e.getCursor();
+            int canCursor = 0;
+            if (cursor == null || cursor.getType() == Material.AIR) {
+                canCursor = maxStack;
+            } else if (cursor.isSimilar(base)) {
+                canCursor = Math.max(0, maxStack - cursor.getAmount());
+            }
+            int putOnCursor = Math.min(desiredItems, canCursor);
+            if (putOnCursor > 0) {
+                if (cursor == null || cursor.getType() == Material.AIR) {
+                    ItemStack toSet = base.clone();
+                    toSet.setAmount(putOnCursor);
+                    p.setItemOnCursor(toSet);
+                } else {
+                    cursor.setAmount(cursor.getAmount() + putOnCursor);
+                    p.setItemOnCursor(cursor);
+                }
+            }
+            acceptedItems += putOnCursor;
+
+            int rest = desiredItems - putOnCursor;
+            if (rest > 0) {
+                Map<Integer, ItemStack> rem = p.getInventory().addItem(ItemUtil.cloneWithAmount(base, rest));
+                if (!rem.isEmpty()) {
+                    int back = 0;
+                    for (ItemStack it : rem.values()) if (it != null) back += it.getAmount();
+                    acceptedItems += Math.max(0, rest - back);
+                }
+            }
         }
+
         int setsCrafted = acceptedItems / perSet;
         if (setsCrafted <= 0) {
             p.sendMessage(plugin.msg("no_inventory_space"));
