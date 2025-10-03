@@ -2,10 +2,14 @@ package ru.refontstudio.refontcrafts.listeners;
 
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
+import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.CraftItemEvent;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.inventory.PrepareItemCraftEvent;
 import org.bukkit.inventory.CraftingInventory;
 import org.bukkit.inventory.ItemStack;
@@ -46,10 +50,7 @@ public class WorkbenchListener implements Listener {
             if (req9.isEmpty()) return;
 
             int possible = computeSetsPossibleShaped(req9, matrix, plugin.exactMeta());
-            if (possible <= 0) {
-                inv.setResult(null);
-                return;
-            }
+            if (possible <= 0) { inv.setResult(null); return; }
 
             ItemStack base = sr.getResult().clone();
             int perSet = Math.max(1, base.getAmount());
@@ -66,10 +67,7 @@ public class WorkbenchListener implements Listener {
             if (req.isEmpty()) return;
 
             int possible = computeSetsPossibleShapeless(req, matrix, plugin.exactMeta());
-            if (possible <= 0) {
-                inv.setResult(null);
-                return;
-            }
+            if (possible <= 0) { inv.setResult(null); return; }
 
             ItemStack base = sr.getResult().clone();
             int perSet = Math.max(1, base.getAmount());
@@ -101,12 +99,7 @@ public class WorkbenchListener implements Listener {
             if (req9.isEmpty()) return;
 
             int possible = computeSetsPossibleShaped(req9, matrix, plugin.exactMeta());
-            if (possible <= 0) {
-                e.setCancelled(true);
-                inv.setResult(null);
-                p.updateInventory();
-                return;
-            }
+            if (possible <= 0) { e.setCancelled(true); inv.setResult(null); p.updateInventory(); return; }
 
             ItemStack base = sr.getResult().clone();
             int perSet = Math.max(1, base.getAmount());
@@ -118,60 +111,40 @@ public class WorkbenchListener implements Listener {
                 int cap = capacityForItem(p.getInventory(), base);
                 int byInv = Math.max(0, cap / perSet);
                 setsWanted = Math.min(possible, byInv);
-                if (setsWanted <= 0) {
-                    e.setCancelled(true);
-                    p.sendMessage(plugin.msg("no_inventory_space"));
-                    return;
-                }
+                if (setsWanted <= 0) { e.setCancelled(true); p.sendMessage(plugin.msg("no_inventory_space")); return; }
             } else {
                 int previewSets = Math.min(possible, Math.max(1, maxStack / perSet));
                 setsWanted = previewSets;
             }
 
             int[] left = simulateConsumeShaped(req9, matrix, setsWanted);
-            if (left == null) {
-                e.setCancelled(true);
-                inv.setResult(null);
-                p.updateInventory();
-                return;
-            }
+            if (left == null) { e.setCancelled(true); inv.setResult(null); p.updateInventory(); return; }
 
             int totalItems = perSet * setsWanted;
-            ItemStack out = base.clone();
-            out.setAmount(totalItems);
+            ItemStack out = base.clone(); out.setAmount(totalItems);
 
             e.setCancelled(true);
 
             if (shift) {
                 Map<Integer, ItemStack> rem = p.getInventory().addItem(out);
                 if (!rem.isEmpty()) {
-                    int given = totalItems;
-                    int back = 0;
-                    for (ItemStack r : rem.values()) if (r != null) back += r.getAmount();
+                    int given = totalItems, back = 0; for (ItemStack r : rem.values()) if (r != null) back += r.getAmount();
                     int accepted = Math.max(0, given - back);
                     int setsAccepted = accepted / perSet;
                     left = simulateConsumeShaped(req9, matrix, setsAccepted);
-                    if (left == null || setsAccepted <= 0) {
-                        p.sendMessage(plugin.msg("no_inventory_space"));
-                        return;
-                    }
+                    if (left == null || setsAccepted <= 0) { p.sendMessage(plugin.msg("no_inventory_space")); return; }
                     totalItems = accepted;
                 }
             } else {
                 ItemStack cursor = p.getItemOnCursor();
                 int canOnCursor;
-                if (cursor == null || cursor.getType() == Material.AIR) {
-                    canOnCursor = maxStack;
-                } else if (cursor.isSimilar(base)) {
-                    canOnCursor = Math.max(0, maxStack - cursor.getAmount());
-                } else {
-                    canOnCursor = 0;
-                }
+                if (cursor == null || cursor.getType() == Material.AIR) canOnCursor = maxStack;
+                else if (cursor.isSimilar(base)) canOnCursor = Math.max(0, maxStack - cursor.getAmount());
+                else canOnCursor = 0;
                 int putOnCursor = Math.min(totalItems, canOnCursor);
                 if (putOnCursor > 0) {
                     if (cursor == null || cursor.getType() == Material.AIR) {
-                        ItemStack toSet = base.clone();
-                        toSet.setAmount(putOnCursor);
+                        ItemStack toSet = base.clone(); toSet.setAmount(putOnCursor);
                         p.setItemOnCursor(toSet);
                     } else {
                         cursor.setAmount(cursor.getAmount() + putOnCursor);
@@ -182,15 +155,11 @@ public class WorkbenchListener implements Listener {
                 if (rest > 0) {
                     Map<Integer, ItemStack> rem = p.getInventory().addItem(cloneWithAmount(base, rest));
                     if (!rem.isEmpty()) {
-                        int back = 0;
-                        for (ItemStack r : rem.values()) if (r != null) back += r.getAmount();
+                        int back = 0; for (ItemStack r : rem.values()) if (r != null) back += r.getAmount();
                         int accepted = Math.max(0, rest - back) + putOnCursor;
                         int setsAccepted = accepted / perSet;
                         left = simulateConsumeShaped(req9, matrix, setsAccepted);
-                        if (left == null || setsAccepted <= 0) {
-                            p.sendMessage(plugin.msg("no_inventory_space"));
-                            return;
-                        }
+                        if (left == null || setsAccepted <= 0) { p.sendMessage(plugin.msg("no_inventory_space")); return; }
                         totalItems = accepted;
                     }
                 }
@@ -199,19 +168,19 @@ public class WorkbenchListener implements Listener {
             ItemStack[] newMatrix = new ItemStack[matrix.length];
             for (int i = 0; i < matrix.length; i++) {
                 int leftAmt = (i < left.length ? left[i] : 0);
-                if (leftAmt <= 0) {
-                    newMatrix[i] = null;
-                } else if (matrix[i] != null && matrix[i].getType() != Material.AIR) {
-                    ItemStack c = matrix[i].clone();
-                    c.setAmount(leftAmt);
-                    newMatrix[i] = c;
-                } else {
-                    newMatrix[i] = null;
-                }
+                if (leftAmt <= 0) newMatrix[i] = null;
+                else if (matrix[i] != null && matrix[i].getType() != Material.AIR) {
+                    ItemStack c = matrix[i].clone(); c.setAmount(leftAmt); newMatrix[i] = c;
+                } else newMatrix[i] = null;
             }
             inv.setMatrix(newMatrix);
             inv.setResult(null);
             p.updateInventory();
+
+            String sName = plugin.getConfig().getString("settings.sounds.workbench_success.name", "UI_STONECUTTER_TAKE_RESULT");
+            float vol = (float) plugin.getConfig().getDouble("settings.sounds.workbench_success.volume", 1.0);
+            float pit = (float) plugin.getConfig().getDouble("settings.sounds.workbench_success.pitch", 1.05);
+            p.playSound(p.getLocation(), safeSound(sName, Sound.UI_STONECUTTER_TAKE_RESULT), vol, pit);
             return;
         }
 
@@ -221,12 +190,7 @@ public class WorkbenchListener implements Listener {
             if (req.isEmpty()) return;
 
             int possible = computeSetsPossibleShapeless(req, matrix, plugin.exactMeta());
-            if (possible <= 0) {
-                e.setCancelled(true);
-                inv.setResult(null);
-                p.updateInventory();
-                return;
-            }
+            if (possible <= 0) { e.setCancelled(true); inv.setResult(null); p.updateInventory(); return; }
 
             ItemStack base = sr.getResult().clone();
             int perSet = Math.max(1, base.getAmount());
@@ -238,60 +202,40 @@ public class WorkbenchListener implements Listener {
                 int cap = capacityForItem(p.getInventory(), base);
                 int byInv = Math.max(0, cap / perSet);
                 setsWanted = Math.min(possible, byInv);
-                if (setsWanted <= 0) {
-                    e.setCancelled(true);
-                    p.sendMessage(plugin.msg("no_inventory_space"));
-                    return;
-                }
+                if (setsWanted <= 0) { e.setCancelled(true); p.sendMessage(plugin.msg("no_inventory_space")); return; }
             } else {
                 int previewSets = Math.min(possible, Math.max(1, maxStack / perSet));
                 setsWanted = previewSets;
             }
 
             int[] left = simulateConsumeShapeless(req, matrix, plugin.exactMeta(), setsWanted);
-            if (left == null) {
-                e.setCancelled(true);
-                inv.setResult(null);
-                p.updateInventory();
-                return;
-            }
+            if (left == null) { e.setCancelled(true); inv.setResult(null); p.updateInventory(); return; }
 
             int totalItems = perSet * setsWanted;
-            ItemStack out = base.clone();
-            out.setAmount(totalItems);
+            ItemStack out = base.clone(); out.setAmount(totalItems);
 
             e.setCancelled(true);
 
             if (shift) {
                 Map<Integer, ItemStack> rem = p.getInventory().addItem(out);
                 if (!rem.isEmpty()) {
-                    int given = totalItems;
-                    int back = 0;
-                    for (ItemStack r : rem.values()) if (r != null) back += r.getAmount();
+                    int given = totalItems, back = 0; for (ItemStack r : rem.values()) if (r != null) back += r.getAmount();
                     int accepted = Math.max(0, given - back);
                     int setsAccepted = accepted / perSet;
                     left = simulateConsumeShapeless(req, matrix, plugin.exactMeta(), setsAccepted);
-                    if (left == null || setsAccepted <= 0) {
-                        p.sendMessage(plugin.msg("no_inventory_space"));
-                        return;
-                    }
+                    if (left == null || setsAccepted <= 0) { p.sendMessage(plugin.msg("no_inventory_space")); return; }
                     totalItems = accepted;
                 }
             } else {
                 ItemStack cursor = p.getItemOnCursor();
                 int canOnCursor;
-                if (cursor == null || cursor.getType() == Material.AIR) {
-                    canOnCursor = maxStack;
-                } else if (cursor.isSimilar(base)) {
-                    canOnCursor = Math.max(0, maxStack - cursor.getAmount());
-                } else {
-                    canOnCursor = 0;
-                }
+                if (cursor == null || cursor.getType() == Material.AIR) canOnCursor = maxStack;
+                else if (cursor.isSimilar(base)) canOnCursor = Math.max(0, maxStack - cursor.getAmount());
+                else canOnCursor = 0;
                 int putOnCursor = Math.min(totalItems, canOnCursor);
                 if (putOnCursor > 0) {
                     if (cursor == null || cursor.getType() == Material.AIR) {
-                        ItemStack toSet = base.clone();
-                        toSet.setAmount(putOnCursor);
+                        ItemStack toSet = base.clone(); toSet.setAmount(putOnCursor);
                         p.setItemOnCursor(toSet);
                     } else {
                         cursor.setAmount(cursor.getAmount() + putOnCursor);
@@ -302,15 +246,11 @@ public class WorkbenchListener implements Listener {
                 if (rest > 0) {
                     Map<Integer, ItemStack> rem = p.getInventory().addItem(cloneWithAmount(base, rest));
                     if (!rem.isEmpty()) {
-                        int back = 0;
-                        for (ItemStack r : rem.values()) if (r != null) back += r.getAmount();
+                        int back = 0; for (ItemStack r : rem.values()) if (r != null) back += r.getAmount();
                         int accepted = Math.max(0, rest - back) + putOnCursor;
                         int setsAccepted = accepted / perSet;
                         left = simulateConsumeShapeless(req, matrix, plugin.exactMeta(), setsAccepted);
-                        if (left == null || setsAccepted <= 0) {
-                            p.sendMessage(plugin.msg("no_inventory_space"));
-                            return;
-                        }
+                        if (left == null || setsAccepted <= 0) { p.sendMessage(plugin.msg("no_inventory_space")); return; }
                         totalItems = accepted;
                     }
                 }
@@ -318,18 +258,22 @@ public class WorkbenchListener implements Listener {
 
             ItemStack[] newMatrix = new ItemStack[matrix.length];
             for (int i = 0; i < matrix.length; i++) {
-                if (left[i] <= 0) {
-                    newMatrix[i] = null;
-                } else {
-                    ItemStack c = matrix[i].clone();
-                    c.setAmount(left[i]);
-                    newMatrix[i] = c;
-                }
+                if (left[i] <= 0) newMatrix[i] = null;
+                else { ItemStack c = matrix[i].clone(); c.setAmount(left[i]); newMatrix[i] = c; }
             }
             inv.setMatrix(newMatrix);
             inv.setResult(null);
             p.updateInventory();
+
+            String sName = plugin.getConfig().getString("settings.sounds.workbench_success.name", "UI_STONECUTTER_TAKE_RESULT");
+            float vol = (float) plugin.getConfig().getDouble("settings.sounds.workbench_success.volume", 1.0);
+            float pit = (float) plugin.getConfig().getDouble("settings.sounds.workbench_success.pitch", 1.05);
+            p.playSound(p.getLocation(), safeSound(sName, Sound.UI_STONECUTTER_TAKE_RESULT), vol, pit);
         }
+    }
+
+    private Sound safeSound(String name, Sound def) {
+        try { return Sound.valueOf(name); } catch (Throwable ignored) { return def; }
     }
 
     private List<ItemStack> getShapelessRequirementsCached(ShapelessRecipe sr) {
@@ -407,9 +351,8 @@ public class WorkbenchListener implements Listener {
             for (int c = 0; c < 3; c++) {
                 char ch = (c < row.length()) ? row.charAt(c) : ' ';
                 ItemStack need = null;
-                if (ch == ' ') {
-                    need = new ItemStack(Material.AIR);
-                } else if (choiceMap != null) {
+                if (ch == ' ') need = new ItemStack(Material.AIR);
+                else if (choiceMap != null) {
                     RecipeChoice chs = choiceMap.get(ch);
                     if (chs instanceof RecipeChoice.ExactChoice) {
                         List<ItemStack> list = ((RecipeChoice.ExactChoice) chs).getChoices();
@@ -420,10 +363,7 @@ public class WorkbenchListener implements Listener {
                     }
                 } else if (legacyMap != null) {
                     ItemStack got = legacyMap.get(ch);
-                    if (got != null) {
-                        need = got.clone();
-                        need.setAmount(1);
-                    }
+                    if (got != null) { need = got.clone(); need.setAmount(1); }
                 }
                 if (need == null) need = new ItemStack(Material.AIR);
                 req9.add(need);
@@ -470,6 +410,36 @@ public class WorkbenchListener implements Listener {
         return left;
     }
 
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onWorkbenchInputShift(InventoryClickEvent e) {
+        InventoryType t = e.getInventory().getType();
+        if (t != InventoryType.WORKBENCH && t != InventoryType.CRAFTING) return;
+        if (!(e.getWhoClicked() instanceof Player)) return;
+        int raw = e.getRawSlot();
+        int topSize = e.getView().getTopInventory().getSize();
+
+        // WORKBENCH: 0 - result, 1..9 - матрица; PLAYER  - ниже
+        boolean isMatrixSlot = (t == InventoryType.WORKBENCH && raw >= 1 && raw <= 9)
+                || (t == InventoryType.CRAFTING && raw >= 1 && raw <= 4);
+        if (!isMatrixSlot) return;
+
+        if (e.isShiftClick()) {
+            Player p = (Player) e.getWhoClicked();
+            ItemStack cur = e.getCurrentItem();
+            if (cur == null || cur.getType() == Material.AIR) return;
+            e.setCancelled(true);
+            Map<Integer, ItemStack> rem = p.getInventory().addItem(cur.clone());
+            int back = 0; for (ItemStack r : rem.values()) if (r != null) back += r.getAmount();
+            if (back <= 0) {
+                e.getInventory().setItem(raw, null);
+            } else {
+                ItemStack rest = cur.clone(); rest.setAmount(back);
+                e.getInventory().setItem(raw, rest);
+            }
+            p.updateInventory();
+        }
+    }
+
     private int computeSetsPossibleShaped(List<ItemStack> req9, ItemStack[] matrix, boolean exact) {
         int possible = Integer.MAX_VALUE;
         for (int i = 0; i < 9; i++) {
@@ -483,11 +453,8 @@ public class WorkbenchListener implements Listener {
             }
             ItemStack have = i < matrix.length ? matrix[i] : null;
             if (have == null || have.getType() == Material.AIR) return 0;
-            if (exact) {
-                if (!have.isSimilar(need)) return 0;
-            } else {
-                if (have.getType() != need.getType()) return 0;
-            }
+            if (exact) { if (!have.isSimilar(need)) return 0; }
+            else { if (have.getType() != need.getType()) return 0; }
             int can = Math.max(0, have.getAmount() / Math.max(1, need.getAmount()));
             possible = Math.min(possible, can);
         }
@@ -532,11 +499,8 @@ public class WorkbenchListener implements Listener {
         ItemStack[] cont = inv.getStorageContents();
         int max = sample.getMaxStackSize();
         for (ItemStack it : cont) {
-            if (it == null || it.getType() == Material.AIR) {
-                cap += max;
-            } else if (it.isSimilar(sample)) {
-                cap += Math.max(0, max - it.getAmount());
-            }
+            if (it == null || it.getType() == Material.AIR) cap += max;
+            else if (it.isSimilar(sample)) cap += Math.max(0, max - it.getAmount());
         }
         return cap;
     }

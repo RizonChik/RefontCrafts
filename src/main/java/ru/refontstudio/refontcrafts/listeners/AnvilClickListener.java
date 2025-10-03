@@ -1,6 +1,8 @@
 package ru.refontstudio.refontcrafts.listeners;
 
+import org.bukkit.GameMode;
 import org.bukkit.Material;
+import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -78,7 +80,7 @@ public class AnvilClickListener implements Listener {
 
         Player p = (Player) e.getWhoClicked();
         int cost = Math.max(0, matched.cost);
-        if (cost > 0 && p.getLevel() < cost) {
+        if (cost > 0 && p.getGameMode() != GameMode.CREATIVE && p.getLevel() < cost) {
             p.sendMessage(plugin.msg("not_enough_levels", "cost", String.valueOf(cost)));
             return;
         }
@@ -121,8 +123,9 @@ public class AnvilClickListener implements Listener {
             p.setItemOnCursor(result);
         }
 
-        if (cost > 0) p.setLevel(Math.max(0, p.getLevel() - cost));
+        if (cost > 0 && p.getGameMode() != GameMode.CREATIVE) p.setLevel(Math.max(0, p.getLevel() - cost));
         p.updateInventory();
+        p.playSound(p.getLocation(), Sound.BLOCK_ANVIL_USE, 1f, 1f);
     }
 
     private boolean matches(ItemStack actual, ItemStack recipe) {
