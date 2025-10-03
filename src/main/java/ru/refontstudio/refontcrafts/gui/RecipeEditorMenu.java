@@ -24,9 +24,6 @@ import java.util.*;
 public class RecipeEditorMenu implements Listener {
     private final RefontCrafts plugin;
     private final RecipeStorage storage;
-    private final Set<UUID> open = new HashSet<>();
-    private final Map<UUID, String> editId = new HashMap<>();
-    private final Map<UUID, Boolean> editShaped = new HashMap<>();
     private final NamespacedKey GHOST;
 
     private static final int[] ING = {10,11,12,19,20,21,28,29,30};
@@ -50,9 +47,6 @@ public class RecipeEditorMenu implements Listener {
         inv.setItem(CLEAR, ItemUtil.named(Material.YELLOW_WOOL, "§eОчистить", "§7Убрать все предметы"));
         inv.setItem(EXIT, ItemUtil.named(Material.BARRIER, "§cВыход", "§7Вернуть вещи и закрыть"));
         p.openInventory(inv);
-        open.add(p.getUniqueId());
-        editId.remove(p.getUniqueId());
-        editShaped.remove(p.getUniqueId());
     }
 
     public void openEditorForEdit(Player p, String id, List<ItemStack> grid9, ItemStack result, boolean shaped) {
@@ -71,154 +65,117 @@ public class RecipeEditorMenu implements Listener {
         inv.setItem(CLEAR, ItemUtil.named(Material.YELLOW_WOOL, "§eОчистить", "§7Убрать все предметы"));
         inv.setItem(EXIT, ItemUtil.named(Material.BARRIER, "§cВыход", "§7Вернуть вещи и закрыть"));
         p.openInventory(inv);
-        open.add(p.getUniqueId());
-        editId.put(p.getUniqueId(), id);
-        editShaped.put(p.getUniqueId(), shaped);
     }
 
     private boolean isEditorTitle(String title) {
         return Text.plain(title).equals(Text.plain(plugin.titleRecipe()));
     }
 
+    private boolean isRecipeSlot(int s) {
+        if (s == RES) return true;
+        for (int x : ING) if (x == s) return true;
+        return false;
+    }
+    private boolean isControlSlot(int s) { return s == SAVE || s == CLEAR || s == EXIT; }
+
     @EventHandler
     public void click(InventoryClickEvent e) {
         if (!isEditorTitle(e.getView().getTitle())) return;
         if (!(e.getWhoClicked() instanceof Player)) return;
+        Player p = (Player) e.getWhoClicked();
         Inventory top = e.getView().getTopInventory();
         int slot = e.getRawSlot();
         if (slot >= top.getSize()) return;
 
-        if (slot == SAVE) {
+        if (isControlSlot(slot)) {
             e.setCancelled(true);
-            Player p = (Player) e.getWhoClicked();
-            List<ItemStack> grid = new ArrayList<>(9);
-            for (int s1 : ING) {
-                ItemStack it = top.getItem(s1);
-                if (it == null || it.getType() == Material.AIR || isGhost(it)) {
-                    grid.add(new ItemStack(Material.AIR));
-                } else {
-                    grid.add(ItemUtil.cloneWithAmount(it, 1));
+            if (slot == SAVE) {
+                List<ItemStack> grid = new ArrayList<>(9);
+                for (int s1 : ING) {
+                    ItemStack it = top.getItem(s1);
+                    if (it == null || it.getType() == Material.AIR) grid.add(new ItemStack(Material.AIR));
+                    else { ItemStack one = unghost(it.clone()); one.setAmount(1); grid.add(one); }
                 }
-            }
-            ItemStack res = top.getItem(RES);
-            if (res == null || res.getType() == Material.AIR || isGhost(res)) {
-                p.sendMessage(Text.color(plugin.prefix() + plugin.msg("recipe_fill_both")));
+                ItemStack res = top.getItem(RES);
+                if (res == null || res.getType() == Material.AIR) {
+                    p.sendMessage(Text.color(plugin.prefix() + plugin.msg("recipe_fill_both")));
+                    return;
+                }
+                String id = storage.saveShapedRecipe(grid, unghost(res.clone()));
+                p.sendMessage(Text.color(plugin.prefix() + plugin.msg("saved_recipe", "id", id)));
                 return;
             }
-            String old = editId.remove(p.getUniqueId());
-            editShaped.remove(p.getUniqueId());
-            if (old != null) storage.deleteWorkbenchRecipe(old);
-            String id = storage.saveShapedRecipe(grid, res.clone());
-            p.sendMessage(Text.color(plugin.prefix() + plugin.msg("saved_recipe", "id", id)));
-            for (int s2 : ING) {
-                dropBack(p, top.getItem(s2));
-                top.setItem(s2, null);
+            if (slot == CLEAR) {
+                for (int s : ING) returnIfReal(p, top.getItem(s));
+                returnIfReal(p, top.getItem(RES));
+                for (int s : ING) top.setItem(s, null);
+                top.setItem(RES, null);
+                return;
             }
-            dropBack(p, top.getItem(RES));
-            top.setItem(RES, null);
-            openEditor(p);
-            return;
-        }
-
-        if (slot == CLEAR) {
-            e.setCancelled(true);
-            for (int s : ING) dropBack(e.getWhoClicked(), top.getItem(s));
-            dropBack(e.getWhoClicked(), top.getItem(RES));
-            for (int s : ING) top.setItem(s, null);
-            top.setItem(RES, null);
-            return;
-        }
-
-        if (slot == EXIT) {
-            e.setCancelled(true);
-            e.getWhoClicked().closeInventory();
-            return;
-        }
-
-        boolean allowed = false;
-        for (int s : ING) if (slot == s) allowed = true;
-        if (slot == RES) allowed = true;
-        if (!allowed) {
-            e.setCancelled(true);
-            return;
-        }
-
-        ItemStack cur = top.getItem(slot);
-        if (cur != null && cur.getType() != Material.AIR && isGhost(cur)) {
-            e.setCancelled(true);
-            Player pl = (Player) e.getWhoClicked();
-            ItemStack cursor = pl.getItemOnCursor();
-            if (cursor == null || cursor.getType() == Material.AIR) {
-                pl.sendMessage(plugin.msg("editor_preview_hint"));
-            } else {
-                if (slot != RES) {
-                    int place = Math.min(1, cursor.getAmount());
-                    ItemStack put = cursor.clone();
-                    put.setAmount(place);
-                    top.setItem(slot, put);
-                    int rest = cursor.getAmount() - place;
-                    if (rest > 0) {
-                        cursor.setAmount(rest);
-                        pl.setItemOnCursor(cursor);
-                    } else {
-                        pl.setItemOnCursor(null);
-                    }
-                } else {
-                    ItemStack put = cursor.clone();
-                    top.setItem(slot, put);
-                    pl.setItemOnCursor(null);
-                }
+            if (slot == EXIT) {
+                p.closeInventory();
             }
             return;
         }
+
+        if (!isRecipeSlot(slot)) e.setCancelled(true);
     }
 
     @EventHandler
     public void drag(InventoryDragEvent e) {
         if (!isEditorTitle(e.getView().getTitle())) return;
-        if (e.getRawSlots().isEmpty()) return;
-        int topSize = e.getView().getTopInventory().getSize();
-        for (Integer s : e.getRawSlots()) {
-            if (s < topSize) {
-                ItemStack it = e.getView().getTopInventory().getItem(s);
-                if (it != null && it.getType() != Material.AIR && isGhost(it)) {
-                    e.setCancelled(true);
-                    return;
-                }
-            }
-        }
+        int top = e.getView().getTopInventory().getSize();
+        for (Integer s : e.getRawSlots()) if (s < top && isControlSlot(s)) { e.setCancelled(true); return; }
     }
 
     @EventHandler
     public void close(InventoryCloseEvent e) {
         if (!isEditorTitle(e.getView().getTitle())) return;
+        HumanEntity he = e.getPlayer();
         Inventory inv = e.getInventory();
-        for (int s : ING) dropBack(e.getPlayer(), inv.getItem(s));
-        dropBack(e.getPlayer(), inv.getItem(RES));
-        open.remove(e.getPlayer().getUniqueId());
-        editId.remove(e.getPlayer().getUniqueId());
-        editShaped.remove(e.getPlayer().getUniqueId());
+        for (int s : ING) returnIfReal(he, inv.getItem(s));
+        returnIfReal(he, inv.getItem(RES));
+        cleanupGhostEverywhere((Player) he);
     }
 
-    private void dropBack(HumanEntity p, ItemStack it) {
+    private void returnIfReal(HumanEntity p, ItemStack it) {
         if (it == null || it.getType() == Material.AIR) return;
         if (isGhost(it)) return;
         Map<Integer, ItemStack> left = p.getInventory().addItem(it.clone());
-        if (!left.isEmpty() && p instanceof Player) ((Player) p).sendMessage(plugin.msg("no_inventory_space"));
         for (ItemStack r : left.values()) p.getWorld().dropItemNaturally(p.getLocation(), r);
+    }
+
+    private void cleanupGhostEverywhere(Player p) {
+        if (isGhost(p.getItemOnCursor())) p.setItemOnCursor(null);
+        ItemStack[] cont = p.getInventory().getContents();
+        boolean changed = false;
+        for (int i = 0; i < cont.length; i++) {
+            ItemStack it = cont[i];
+            if (isGhost(it)) { cont[i] = null; changed = true; }
+        }
+        if (changed) p.getInventory().setContents(cont);
     }
 
     private void markGhost(ItemStack it) {
         ItemMeta m = it.getItemMeta();
         if (m == null) return;
-        m.getPersistentDataContainer().set(GHOST, PersistentDataType.BYTE, (byte) 1);
+        m.getPersistentDataContainer().set(new NamespacedKey(plugin, "rc_ghost"), PersistentDataType.BYTE, (byte) 1);
         it.setItemMeta(m);
     }
 
     private boolean isGhost(ItemStack it) {
+        if (it == null) return false;
         ItemMeta m = it.getItemMeta();
         if (m == null) return false;
-        Byte b = m.getPersistentDataContainer().get(GHOST, PersistentDataType.BYTE);
+        Byte b = m.getPersistentDataContainer().get(new NamespacedKey(plugin, "rc_ghost"), PersistentDataType.BYTE);
         return b != null && b == (byte) 1;
+    }
+
+    private ItemStack unghost(ItemStack it) {
+        if (it == null) return null;
+        ItemMeta m = it.getItemMeta();
+        if (m != null) m.getPersistentDataContainer().remove(new NamespacedKey(plugin, "rc_ghost"));
+        it.setItemMeta(m);
+        return it;
     }
 }

@@ -28,8 +28,10 @@ public class RecipeBrowserMenu implements Listener {
     private final NamespacedKey NAV;
     private final NamespacedKey RID;
     private final NamespacedKey TYP;
+    private final NamespacedKey ACT;
 
     private final Map<UUID, Integer> pages = new HashMap<>();
+    private final Map<UUID, String> lastType = new HashMap<>();
 
     private static final int[] VIEW_SLOTS = {
             10,11,12,13,14,15,16,
@@ -47,9 +49,11 @@ public class RecipeBrowserMenu implements Listener {
         this.NAV = new NamespacedKey(plugin, "rc_nav");
         this.RID = new NamespacedKey(plugin, "rc_rid");
         this.TYP = new NamespacedKey(plugin, "rc_typ");
+        this.ACT = new NamespacedKey(plugin, "rc_act");
     }
 
     public void openWorkbench(Player p, int page) {
+        lastType.put(p.getUniqueId(), "wb");
         pages.put(p.getUniqueId(), Math.max(1, page));
         String title = plugin.titleBrowseWorkbench();
         Inventory inv = Bukkit.createInventory(p, 54, title);
@@ -85,6 +89,7 @@ public class RecipeBrowserMenu implements Listener {
     }
 
     public void openAnvil(Player p, int page) {
+        lastType.put(p.getUniqueId(), "anv");
         pages.put(p.getUniqueId(), Math.max(1, page));
         String title = plugin.titleBrowseAnvil();
         Inventory inv = Bukkit.createInventory(p, 54, title);
@@ -122,17 +127,70 @@ public class RecipeBrowserMenu implements Listener {
         p.openInventory(inv);
     }
 
+    private String confirmTitle() {
+        return Text.color("§cПодтверждение удаления");
+    }
+
+    private void openConfirm(Player p, String type, String id, ItemStack preview) {
+        Inventory inv = Bukkit.createInventory(p, 27, confirmTitle());
+        for (int i = 0; i < inv.getSize(); i++) inv.setItem(i, ItemUtil.named(Material.BLACK_STAINED_GLASS_PANE, " "));
+        ItemStack center = preview == null ? ItemUtil.named(Material.PAPER, "&fРецепт") : preview.clone();
+        ItemMeta cim = center.getItemMeta();
+        cim.getPersistentDataContainer().set(RID, PersistentDataType.STRING, id);
+        cim.getPersistentDataContainer().set(TYP, PersistentDataType.STRING, type);
+        center.setItemMeta(cim);
+        inv.setItem(13, center);
+
+        ItemStack yes = ItemUtil.named(Material.LIME_WOOL, "&aДа, удалить");
+        ItemMeta yim = yes.getItemMeta();
+        yim.getPersistentDataContainer().set(ACT, PersistentDataType.STRING, "yes");
+        yim.getPersistentDataContainer().set(RID, PersistentDataType.STRING, id);
+        yim.getPersistentDataContainer().set(TYP, PersistentDataType.STRING, type);
+        yes.setItemMeta(yim);
+
+        ItemStack no = ItemUtil.named(Material.RED_WOOL, "&cНет, назад");
+        ItemMeta nim = no.getItemMeta();
+        nim.getPersistentDataContainer().set(ACT, PersistentDataType.STRING, "no");
+        nim.getPersistentDataContainer().set(RID, PersistentDataType.STRING, id);
+        nim.getPersistentDataContainer().set(TYP, PersistentDataType.STRING, type);
+        no.setItemMeta(nim);
+
+        inv.setItem(11, yes);
+        inv.setItem(15, no);
+        p.openInventory(inv);
+    }
+
     @EventHandler
     public void onClick(InventoryClickEvent e) {
         String title = e.getView().getTitle();
         boolean isWB = Text.plain(title).equals(Text.plain(plugin.titleBrowseWorkbench()));
         boolean isAN = Text.plain(title).equals(Text.plain(plugin.titleBrowseAnvil()));
-        if (!isWB && !isAN) return;
+        boolean isCF = Text.plain(title).equals(Text.plain(confirmTitle()));
         if (!(e.getWhoClicked() instanceof Player)) return;
         Player p = (Player) e.getWhoClicked();
         Inventory top = e.getView().getTopInventory();
         if (e.getRawSlot() >= top.getSize()) return;
         e.setCancelled(true);
+
+        if (isCF) {
+            ItemStack it = e.getCurrentItem();
+            if (it == null || it.getType() == Material.AIR) return;
+            ItemMeta im = it.getItemMeta();
+            if (im == null) return;
+            String act = im.getPersistentDataContainer().get(ACT, PersistentDataType.STRING);
+            String id = im.getPersistentDataContainer().get(RID, PersistentDataType.STRING);
+            String tp = im.getPersistentDataContainer().get(TYP, PersistentDataType.STRING);
+            if (act == null || id == null || tp == null) return;
+            if (act.equals("yes")) {
+                if (tp.equals("wb")) storage.deleteWorkbenchRecipe(id); else storage.deleteAnvilRecipe(id);
+            }
+            String last = lastType.getOrDefault(p.getUniqueId(), "wb");
+            int pg = pages.getOrDefault(p.getUniqueId(), 1);
+            if (last.equals("wb")) openWorkbench(p, pg); else openAnvil(p, pg);
+            return;
+        }
+
+        if (!isWB && !isAN) return;
 
         int raw = e.getRawSlot();
         ItemStack it = e.getCurrentItem();
@@ -177,8 +235,8 @@ public class RecipeBrowserMenu implements Listener {
                 if (r == null) return;
                 plugin.recipeMenu().openEditorForEdit(p, id, r.ingredients, r.result, r.shaped);
             } else if (e.isRightClick()) {
-                storage.deleteWorkbenchRecipe(id);
-                openWorkbench(p, pages.getOrDefault(p.getUniqueId(), 1));
+                WorkbenchRecipe r = storage.getWorkbenchRecipe(id);
+                openConfirm(p, "wb", id, r != null ? r.result : null);
             }
             return;
         }
@@ -188,8 +246,8 @@ public class RecipeBrowserMenu implements Listener {
                 if (r == null) return;
                 plugin.anvilMenu().openEditorForEdit(p, r.left, r.right, r.result, r.cost, id);
             } else if (e.isRightClick()) {
-                storage.deleteAnvilRecipe(id);
-                openAnvil(p, pages.getOrDefault(p.getUniqueId(), 1));
+                AnvilRecipe r = storage.getAnvilRecipe(id);
+                openConfirm(p, "anv", id, r != null ? r.result : null);
             }
         }
     }
@@ -201,6 +259,7 @@ public class RecipeBrowserMenu implements Listener {
         boolean isAN = Text.plain(title).equals(Text.plain(plugin.titleBrowseAnvil()));
         if (!isWB && !isAN) return;
         pages.remove(e.getPlayer().getUniqueId());
+        lastType.remove(e.getPlayer().getUniqueId());
     }
 
     private void fillFrame(Inventory inv) {

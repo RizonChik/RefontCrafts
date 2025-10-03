@@ -90,122 +90,99 @@ public class AnvilEditorMenu implements Listener {
         return Text.plain(title).equals(Text.plain(plugin.titleAnvil()));
     }
 
+    private boolean isRecipeSlot(int s) { return s == LEFT || s == RIGHT || s == OUT; }
+    private boolean isControlSlot(int s) { return s == MINUS || s == PLUS || s == COST || s == SAVE || s == CLEAR || s == EXIT; }
+
     @EventHandler
     public void click(InventoryClickEvent e) {
         if (!isEditorTitle(e.getView().getTitle())) return;
         if (!(e.getWhoClicked() instanceof Player)) return;
+
+        Player p = (Player) e.getWhoClicked();
         Inventory top = e.getView().getTopInventory();
         int slot = e.getRawSlot();
         if (slot >= top.getSize()) return;
 
-        if (slot == MINUS || slot == PLUS) {
+        if (isControlSlot(slot)) {
             e.setCancelled(true);
-            Player p = (Player) e.getWhoClicked();
-            int cur = costs.getOrDefault(p, plugin.defaultAnvilCost());
-            if (slot == MINUS) cur = Math.max(0, cur - 1); else cur = Math.min(99, cur + 1);
-            costs.put(p, cur);
-            top.setItem(COST, ItemUtil.named(Material.EXPERIENCE_BOTTLE, "&eСтоимость: &f" + cur, "&7Уровни при крафте"));
-            return;
-        }
-
-        if (slot == SAVE) {
-            e.setCancelled(true);
-            Player p = (Player) e.getWhoClicked();
-            ItemStack left = top.getItem(LEFT);
-            ItemStack right = top.getItem(RIGHT);
-            ItemStack out = top.getItem(OUT);
-            if (left == null || right == null || out == null
-                    || left.getType() == Material.AIR || right.getType() == Material.AIR || out.getType() == Material.AIR
-                    || isGhost(left) || isGhost(right) || isGhost(out)) {
-                p.sendMessage(Text.color(plugin.prefix() + plugin.msg("anvil_fill_both")));
+            if (slot == MINUS || slot == PLUS) {
+                int cur = costs.getOrDefault(p, plugin.defaultAnvilCost());
+                cur = slot == MINUS ? Math.max(0, cur - 1) : Math.min(99, cur + 1);
+                costs.put(p, cur);
+                top.setItem(COST, ItemUtil.named(Material.EXPERIENCE_BOTTLE, "&eСтоимость: &f" + cur, "&7Уровни при крафте"));
                 return;
             }
-            int cost = costs.getOrDefault(p, plugin.defaultAnvilCost());
-            String old = editId.remove(p.getUniqueId());
-            if (old != null) storage.deleteAnvilRecipe(old);
-            String id = storage.saveAnvilRecipe(left.clone(), right.clone(), out.clone(), cost);
-            p.sendMessage(Text.color(plugin.prefix() + plugin.msg("saved_anvil", "id", id, "cost", String.valueOf(cost))));
-            dropBack(p, left);
-            dropBack(p, right);
-            dropBack(p, out);
-            top.setItem(LEFT, null);
-            top.setItem(RIGHT, null);
-            top.setItem(OUT, null);
-            openEditor(p);
-            return;
-        }
-
-        if (slot == CLEAR) {
-            e.setCancelled(true);
-            dropBack(e.getWhoClicked(), top.getItem(LEFT));
-            dropBack(e.getWhoClicked(), top.getItem(RIGHT));
-            dropBack(e.getWhoClicked(), top.getItem(OUT));
-            top.setItem(LEFT, null);
-            top.setItem(RIGHT, null);
-            top.setItem(OUT, null);
-            return;
-        }
-
-        if (slot == EXIT) {
-            e.setCancelled(true);
-            e.getWhoClicked().closeInventory();
-            return;
-        }
-
-        boolean allowed = slot == LEFT || slot == RIGHT || slot == OUT;
-        if (!allowed) {
-            e.setCancelled(true);
-            return;
-        }
-
-        ItemStack cur = top.getItem(slot);
-        if (cur != null && cur.getType() != Material.AIR && isGhost(cur)) {
-            e.setCancelled(true);
-            Player pl = (Player) e.getWhoClicked();
-            ItemStack cursor = pl.getItemOnCursor();
-            if (cursor == null || cursor.getType() == Material.AIR) {
-                pl.sendMessage(plugin.msg("editor_preview_hint"));
-            } else {
-                ItemStack put = cursor.clone();
-                top.setItem(slot, put);
-                pl.setItemOnCursor(null);
+            if (slot == SAVE) {
+                ItemStack L = top.getItem(LEFT);
+                ItemStack R = top.getItem(RIGHT);
+                ItemStack O = top.getItem(OUT);
+                if (L == null || L.getType() == Material.AIR || R == null || R.getType() == Material.AIR || O == null || O.getType() == Material.AIR) {
+                    p.sendMessage(Text.color(plugin.prefix() + plugin.msg("anvil_fill_both")));
+                    return;
+                }
+                ItemStack left = unghost(L.clone());
+                ItemStack right = unghost(R.clone());
+                ItemStack out = unghost(O.clone());
+                int cost = costs.getOrDefault(p, plugin.defaultAnvilCost());
+                String old = editId.remove(p.getUniqueId());
+                if (old != null) storage.deleteAnvilRecipe(old);
+                String id = storage.saveAnvilRecipe(left, right, out, cost);
+                p.sendMessage(Text.color(plugin.prefix() + plugin.msg("saved_anvil", "id", id, "cost", String.valueOf(cost))));
+                return;
+            }
+            if (slot == CLEAR) {
+                returnIfReal(p, top.getItem(LEFT));
+                returnIfReal(p, top.getItem(RIGHT));
+                returnIfReal(p, top.getItem(OUT));
+                top.setItem(LEFT, null);
+                top.setItem(RIGHT, null);
+                top.setItem(OUT, null);
+                return;
+            }
+            if (slot == EXIT) {
+                p.closeInventory();
             }
             return;
         }
+
+        if (!isRecipeSlot(slot)) e.setCancelled(true);
     }
 
     @EventHandler
     public void drag(InventoryDragEvent e) {
         if (!isEditorTitle(e.getView().getTitle())) return;
-        if (e.getRawSlots().isEmpty()) return;
-        int topSize = e.getView().getTopInventory().getSize();
-        for (Integer s : e.getRawSlots()) {
-            if (s < topSize) {
-                ItemStack it = e.getView().getTopInventory().getItem(s);
-                if (it != null && it.getType() != Material.AIR && isGhost(it)) {
-                    e.setCancelled(true);
-                    return;
-                }
-            }
-        }
+        int top = e.getView().getTopInventory().getSize();
+        for (Integer s : e.getRawSlots()) if (s < top && isControlSlot(s)) { e.setCancelled(true); return; }
     }
 
     @EventHandler
     public void close(InventoryCloseEvent e) {
         if (!isEditorTitle(e.getView().getTitle())) return;
-        dropBack(e.getPlayer(), e.getInventory().getItem(LEFT));
-        dropBack(e.getPlayer(), e.getInventory().getItem(RIGHT));
-        dropBack(e.getPlayer(), e.getInventory().getItem(OUT));
-        costs.remove((Player) e.getPlayer());
-        editId.remove(e.getPlayer().getUniqueId());
+        Player p = (Player) e.getPlayer();
+        returnIfReal(p, e.getInventory().getItem(LEFT));
+        returnIfReal(p, e.getInventory().getItem(RIGHT));
+        returnIfReal(p, e.getInventory().getItem(OUT));
+        cleanupGhostEverywhere(p);
+        costs.remove(p);
+        editId.remove(p.getUniqueId());
     }
 
-    private void dropBack(HumanEntity p, ItemStack it) {
+    private void returnIfReal(HumanEntity p, ItemStack it) {
         if (it == null || it.getType() == Material.AIR) return;
         if (isGhost(it)) return;
         Map<Integer, ItemStack> left = p.getInventory().addItem(it.clone());
-        if (!left.isEmpty() && p instanceof Player) ((Player) p).sendMessage(plugin.msg("no_inventory_space"));
         for (ItemStack r : left.values()) p.getWorld().dropItemNaturally(p.getLocation(), r);
+    }
+
+    private void cleanupGhostEverywhere(Player p) {
+        if (isGhost(p.getItemOnCursor())) p.setItemOnCursor(null);
+        ItemStack[] cont = p.getInventory().getContents();
+        boolean changed = false;
+        for (int i = 0; i < cont.length; i++) {
+            ItemStack it = cont[i];
+            if (isGhost(it)) { cont[i] = null; changed = true; }
+        }
+        if (changed) p.getInventory().setContents(cont);
     }
 
     private void markGhost(ItemStack it) {
@@ -216,9 +193,18 @@ public class AnvilEditorMenu implements Listener {
     }
 
     private boolean isGhost(ItemStack it) {
+        if (it == null) return false;
         ItemMeta m = it.getItemMeta();
         if (m == null) return false;
         Byte b = m.getPersistentDataContainer().get(GHOST, PersistentDataType.BYTE);
         return b != null && b == (byte) 1;
+    }
+
+    private ItemStack unghost(ItemStack it) {
+        if (it == null) return null;
+        ItemMeta m = it.getItemMeta();
+        if (m != null) m.getPersistentDataContainer().remove(GHOST);
+        it.setItemMeta(m);
+        return it;
     }
 }
