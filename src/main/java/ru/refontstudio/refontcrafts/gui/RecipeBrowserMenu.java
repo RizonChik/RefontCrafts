@@ -8,6 +8,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -167,9 +168,17 @@ public class RecipeBrowserMenu implements Listener {
         boolean isAN = Text.plain(title).equals(Text.plain(plugin.titleBrowseAnvil()));
         boolean isCF = Text.plain(title).equals(Text.plain(confirmTitle()));
         if (!(e.getWhoClicked() instanceof Player)) return;
+        if (!isWB && !isAN && !isCF) return;
+
         Player p = (Player) e.getWhoClicked();
         Inventory top = e.getView().getTopInventory();
-        if (e.getRawSlot() >= top.getSize()) return;
+        int topSize = top.getSize();
+
+        if (e.getRawSlot() >= topSize) {
+            if (e.isShiftClick()) e.setCancelled(true);
+            return;
+        }
+
         e.setCancelled(true);
 
         if (isCF) {
@@ -249,6 +258,19 @@ public class RecipeBrowserMenu implements Listener {
                 AnvilRecipe r = storage.getAnvilRecipe(id);
                 openConfirm(p, "anv", id, r != null ? r.result : null);
             }
+        }
+    }
+
+    @EventHandler
+    public void onDrag(InventoryDragEvent e) {
+        String title = e.getView().getTitle();
+        boolean isWB = Text.plain(title).equals(Text.plain(plugin.titleBrowseWorkbench()));
+        boolean isAN = Text.plain(title).equals(Text.plain(plugin.titleBrowseAnvil()));
+        boolean isCF = Text.plain(title).equals(Text.plain(confirmTitle()));
+        if (!isWB && !isAN && !isCF) return;
+        int top = e.getView().getTopInventory().getSize();
+        for (Integer s : e.getRawSlots()) {
+            if (s < top) { e.setCancelled(true); return; }
         }
     }
 

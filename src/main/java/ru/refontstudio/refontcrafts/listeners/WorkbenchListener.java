@@ -418,7 +418,6 @@ public class WorkbenchListener implements Listener {
         int raw = e.getRawSlot();
         int topSize = e.getView().getTopInventory().getSize();
 
-        // WORKBENCH: 0 - result, 1..9 - матрица; PLAYER  - ниже
         boolean isMatrixSlot = (t == InventoryType.WORKBENCH && raw >= 1 && raw <= 9)
                 || (t == InventoryType.CRAFTING && raw >= 1 && raw <= 4);
         if (!isMatrixSlot) return;

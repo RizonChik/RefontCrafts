@@ -30,8 +30,10 @@ import java.util.*;
 public class AnvilListener implements Listener {
     private final RefontCrafts plugin;
     private final RecipeStorage storage;
+
     private final Map<Long, List<AnvilRecipe>> index = new HashMap<>();
     private int indexedCount = -1;
+
     private final NamespacedKey RESULT_MARK;
 
     public AnvilListener(RefontCrafts plugin, RecipeStorage storage) {
@@ -51,7 +53,9 @@ public class AnvilListener implements Listener {
         if (candidates.isEmpty()) return;
 
         Player viewer = null;
-        for (HumanEntity he : e.getViewers()) if (he instanceof Player) { viewer = (Player) he; break; }
+        for (HumanEntity he : e.getViewers()) {
+            if (he instanceof Player) { viewer = (Player) he; break; }
+        }
 
         for (AnvilRecipe r : candidates) {
             if (!matches(a, r.left) || !matches(b, r.right)) continue;
@@ -90,47 +94,18 @@ public class AnvilListener implements Listener {
         if (!(e.getWhoClicked() instanceof Player)) return;
 
         int raw = e.getRawSlot();
+
         if (raw == 0 || raw == 1) {
-            handleInputSlot(e, raw);
-            return;
-        }
-        if (raw == 2) {
-            handleResultSlot(e);
-        }
-    }
-
-    private void handleInputSlot(InventoryClickEvent e, int raw) {
-        Player p = (Player) e.getWhoClicked();
-        AnvilInventory inv = (AnvilInventory) e.getInventory();
-        ItemStack clicked = inv.getItem(raw);
-        ClickType ct = e.getClick();
-
-        if (e.isShiftClick()) {
-            if (isAir(clicked)) return;
-            e.setCancelled(true);
-            Map<Integer, ItemStack> rem = p.getInventory().addItem(clicked.clone());
-            int back = 0; for (ItemStack r : rem.values()) if (r != null) back += r.getAmount();
-            if (back <= 0) inv.setItem(raw, null);
-            else { ItemStack left = clicked.clone(); left.setAmount(back); inv.setItem(raw, left); }
-            p.updateInventory();
+            if (e.getClick() == ClickType.SWAP_OFFHAND) {
+                e.setCancelled(true);
+            } else {
+                e.setCancelled(false);
+            }
             return;
         }
 
-        if (ct == ClickType.NUMBER_KEY) {
-            int hot = e.getHotbarButton();
-            if (hot < 0) return;
-            e.setCancelled(true);
-            ItemStack hotItem = p.getInventory().getItem(hot);
-            inv.setItem(raw, hotItem);
-            p.getInventory().setItem(hot, clicked);
-            p.updateInventory();
-            return;
-        }
-
-        if (ct == ClickType.SWAP_OFFHAND) {
-            e.setCancelled(true);
-            return;
-        }
+        if (raw != 2) return;
+        handleResultSlot(e);
     }
 
     private void handleResultSlot(InventoryClickEvent e) {
@@ -288,7 +263,8 @@ public class AnvilListener implements Listener {
     private int addToInvOrDrop(Player p, ItemStack base, int amount) {
         Map<Integer, ItemStack> rem = p.getInventory().addItem(ItemUtil.cloneWithAmount(base, amount));
         if (rem.isEmpty()) return amount;
-        int back = 0; for (ItemStack it : rem.values()) if (it != null) back += it.getAmount();
+        int back = 0;
+        for (ItemStack it : rem.values()) if (it != null) back += it.getAmount();
         int accepted = Math.max(0, amount - back);
         if (back > 0) p.getWorld().dropItemNaturally(p.getLocation(), ItemUtil.cloneWithAmount(base, back));
         return accepted;
@@ -358,7 +334,10 @@ public class AnvilListener implements Listener {
         for (AnvilRecipe r : storage.getAnvilRecipes()) {
             long k = key(r.left.getType(), r.right.getType());
             List<AnvilRecipe> list = index.get(k);
-            if (list == null) { list = new ArrayList<AnvilRecipe>(); index.put(k, list); }
+            if (list == null) {
+                list = new ArrayList<>();
+                index.put(k, list);
+            }
             list.add(r);
         }
         indexedCount = cur;
