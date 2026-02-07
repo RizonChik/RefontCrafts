@@ -1,5 +1,12 @@
 # RefontCrafts
 
+<div align="center">
+  <img src="https://img.shields.io/badge/Minecraft-1.16.5-green?style=for-the-badge" alt="Minecraft Version">
+  <img src="https://img.shields.io/badge/Java-8+-orange?style=for-the-badge" alt="Java Version">
+  <img src="https://img.shields.io/github/v/release/rizonchik/RefonixGPS?style=for-the-badge" alt="Release">
+  <img src="https://img.shields.io/github/downloads/rizonchik/RefonixGPS/total?style=for-the-badge" alt="Downloads">
+</div>
+
 Лёгкий редактор крафтов для Paper/Spigot 1.16.5–1.21.x.
 
 - Красивые GUI для верстака (строгие/зеркальные формы) и наковальни (с ценой XP)
