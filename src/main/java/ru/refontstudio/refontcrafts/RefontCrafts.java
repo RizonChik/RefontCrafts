@@ -57,7 +57,7 @@ public final class RefontCrafts extends JavaPlugin {
         } else {
             Bukkit.getPluginManager().registerEvents(new AnvilListener(this, storage), this);
         }
-        Bukkit.getPluginManager().registerEvents(new WorkbenchListener(this), this);
+        Bukkit.getPluginManager().registerEvents(new WorkbenchListener(this, storage), this);
         RefontCraftsCommand cmd = new RefontCraftsCommand(this);
         if (getCommand("rcrafts") != null) {
             getCommand("rcrafts").setExecutor(cmd);

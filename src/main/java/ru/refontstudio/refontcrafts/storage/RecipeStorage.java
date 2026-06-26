@@ -588,7 +588,7 @@ public class RecipeStorage {
 
     private void registerWorkbench(String id, List<ItemStack> ingredients, ItemStack result, boolean shaped) {
         if (!alive()) return;
-        if (shaped && ingredients.size() == 9) {
+        if (shaped && ingredients.size() == 9 && plugin.workbenchStrictShape()) {
             registerShaped(id, ingredients, result);
         } else {
             registerShapeless(id, ingredients, result);

@@ -18,6 +18,7 @@ import org.bukkit.inventory.RecipeChoice;
 import org.bukkit.inventory.ShapedRecipe;
 import org.bukkit.inventory.ShapelessRecipe;
 import ru.refontstudio.refontcrafts.RefontCrafts;
+import ru.refontstudio.refontcrafts.storage.RecipeStorage;
 import ru.refontstudio.refontcrafts.util.ItemUtil;
 
 import java.lang.reflect.Method;
@@ -26,10 +27,12 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class WorkbenchListener implements Listener {
     private final RefontCrafts plugin;
+    private final RecipeStorage storage;
     private final Map<NamespacedKey, List<ItemStack>> reqCache = new ConcurrentHashMap<>();
 
-    public WorkbenchListener(RefontCrafts plugin) {
+    public WorkbenchListener(RefontCrafts plugin, RecipeStorage storage) {
         this.plugin = plugin;
+        this.storage = storage;
     }
 
     @EventHandler
@@ -47,7 +50,7 @@ public class WorkbenchListener implements Listener {
 
         if (e.getRecipe() instanceof ShapedRecipe) {
             ShapedRecipe sr = (ShapedRecipe) e.getRecipe();
-            List<ItemStack> req9 = getShapedRequirementsCached(sr);
+            List<ItemStack> req9 = getShapedRequirements(key, sr);
             if (req9.isEmpty()) return;
 
             int possible = computeSetsPossibleShaped(req9, matrix, plugin.exactMeta());
@@ -96,7 +99,7 @@ public class WorkbenchListener implements Listener {
 
         if (e.getRecipe() instanceof ShapedRecipe) {
             ShapedRecipe sr = (ShapedRecipe) e.getRecipe();
-            List<ItemStack> req9 = getShapedRequirementsCached(sr);
+            List<ItemStack> req9 = getShapedRequirements(key, sr);
             if (req9.isEmpty()) return;
 
             int possible = computeSetsPossibleShaped(req9, matrix, plugin.exactMeta());
@@ -324,6 +327,33 @@ public class WorkbenchListener implements Listener {
         if (k == null) return extractShaped(sr);
         if (reqCache.size() > 1024) reqCache.clear();
         return reqCache.computeIfAbsent(k, kk -> extractShaped(sr));
+    }
+
+    private List<ItemStack> getShapedRequirements(NamespacedKey key, ShapedRecipe sr) {
+        List<ItemStack> stored = getStoredGrid(key);
+        if (!stored.isEmpty()) return stored;
+        return getShapedRequirementsCached(sr);
+    }
+
+    private List<ItemStack> getStoredGrid(NamespacedKey key) {
+        if (key == null) return Collections.emptyList();
+        String raw = key.getKey();
+        boolean mirror = raw.startsWith("shaped_") && raw.endsWith("_m");
+        String id = null;
+        if (mirror) id = raw.substring("shaped_".length(), raw.length() - 2);
+        else if (raw.startsWith("shaped_")) id = raw.substring("shaped_".length());
+        if (id == null) return Collections.emptyList();
+
+        RecipeStorage.WorkbenchRecipe recipe = storage.getWorkbenchRecipe(id);
+        if (recipe == null || !recipe.shaped || recipe.ingredients.size() != 9) return Collections.emptyList();
+
+        List<ItemStack> out = new ArrayList<>(9);
+        for (int i = 0; i < 9; i++) {
+            int src = mirror ? (i / 3) * 3 + (2 - (i % 3)) : i;
+            ItemStack it = recipe.ingredients.get(src);
+            out.add(it == null ? new ItemStack(Material.AIR) : it.clone());
+        }
+        return out;
     }
 
     @SuppressWarnings("unchecked")
