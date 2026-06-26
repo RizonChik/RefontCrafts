@@ -33,6 +33,7 @@ public class RecipeBrowserMenu implements Listener {
 
     private final Map<UUID, Integer> pages = new HashMap<>();
     private final Map<UUID, String> lastType = new HashMap<>();
+    private final Set<UUID> keepStateOnClose = new HashSet<>();
 
     private static final int[] VIEW_SLOTS = {
             10,11,12,13,14,15,16,
@@ -158,6 +159,7 @@ public class RecipeBrowserMenu implements Listener {
 
         inv.setItem(11, yes);
         inv.setItem(15, no);
+        keepStateOnClose.add(p.getUniqueId());
         p.openInventory(inv);
     }
 
@@ -191,7 +193,16 @@ public class RecipeBrowserMenu implements Listener {
             String tp = im.getPersistentDataContainer().get(TYP, PersistentDataType.STRING);
             if (act == null || id == null || tp == null) return;
             if (act.equals("yes")) {
-                if (tp.equals("wb")) storage.deleteWorkbenchRecipe(id); else storage.deleteAnvilRecipe(id);
+                if (!isAdmin(p)) {
+                    p.sendMessage(plugin.prefix() + plugin.msg("no_permission"));
+                    return;
+                }
+                if (tp.equals("wb")) {
+                    storage.deleteWorkbenchRecipeAsync(id, ok -> reopenAfterDelete(p, ok));
+                } else {
+                    storage.deleteAnvilRecipeAsync(id, ok -> reopenAfterDelete(p, ok));
+                }
+                return;
             }
             String last = lastType.getOrDefault(p.getUniqueId(), "wb");
             int pg = pages.getOrDefault(p.getUniqueId(), 1);
@@ -240,10 +251,18 @@ public class RecipeBrowserMenu implements Listener {
 
         if (tp.equals("wb")) {
             if (e.isLeftClick()) {
+                if (!isAdmin(p)) {
+                    p.sendMessage(plugin.prefix() + plugin.msg("no_permission"));
+                    return;
+                }
                 WorkbenchRecipe r = storage.getWorkbenchRecipe(id);
                 if (r == null) return;
                 plugin.recipeMenu().openEditorForEdit(p, id, r.ingredients, r.result, r.shaped);
             } else if (e.isRightClick()) {
+                if (!isAdmin(p)) {
+                    p.sendMessage(plugin.prefix() + plugin.msg("no_permission"));
+                    return;
+                }
                 WorkbenchRecipe r = storage.getWorkbenchRecipe(id);
                 openConfirm(p, "wb", id, r != null ? r.result : null);
             }
@@ -251,10 +270,18 @@ public class RecipeBrowserMenu implements Listener {
         }
         if (tp.equals("anv")) {
             if (e.isLeftClick()) {
+                if (!isAdmin(p)) {
+                    p.sendMessage(plugin.prefix() + plugin.msg("no_permission"));
+                    return;
+                }
                 AnvilRecipe r = storage.getAnvilRecipe(id);
                 if (r == null) return;
                 plugin.anvilMenu().openEditorForEdit(p, r.left, r.right, r.result, r.cost, id);
             } else if (e.isRightClick()) {
+                if (!isAdmin(p)) {
+                    p.sendMessage(plugin.prefix() + plugin.msg("no_permission"));
+                    return;
+                }
                 AnvilRecipe r = storage.getAnvilRecipe(id);
                 openConfirm(p, "anv", id, r != null ? r.result : null);
             }
@@ -280,8 +307,20 @@ public class RecipeBrowserMenu implements Listener {
         boolean isWB = Text.plain(title).equals(Text.plain(plugin.titleBrowseWorkbench()));
         boolean isAN = Text.plain(title).equals(Text.plain(plugin.titleBrowseAnvil()));
         if (!isWB && !isAN) return;
+        if (keepStateOnClose.remove(e.getPlayer().getUniqueId())) return;
         pages.remove(e.getPlayer().getUniqueId());
         lastType.remove(e.getPlayer().getUniqueId());
+    }
+
+    private boolean isAdmin(Player p) {
+        return p.hasPermission("refontcrafts.admin");
+    }
+
+    private void reopenAfterDelete(Player p, boolean ok) {
+        if (!ok) p.sendMessage(plugin.prefix() + Text.color("&cDelete failed."));
+        String last = lastType.getOrDefault(p.getUniqueId(), "wb");
+        int pg = pages.getOrDefault(p.getUniqueId(), 1);
+        if (last.equals("wb")) openWorkbench(p, pg); else openAnvil(p, pg);
     }
 
     private void fillFrame(Inventory inv) {

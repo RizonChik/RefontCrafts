@@ -25,6 +25,7 @@ public class RecipeEditorMenu implements Listener {
     private final RefontCrafts plugin;
     private final RecipeStorage storage;
     private final NamespacedKey GHOST;
+    private final Map<UUID, String> editId = new HashMap<>();
 
     private static final int[] ING = {10,11,12,19,20,21,28,29,30};
     private static final int RES = 25;
@@ -46,6 +47,7 @@ public class RecipeEditorMenu implements Listener {
         inv.setItem(SAVE, ItemUtil.named(Material.LIME_WOOL, "§aСохранить", "§7Сохранить рецепт"));
         inv.setItem(CLEAR, ItemUtil.named(Material.YELLOW_WOOL, "§eОчистить", "§7Убрать все предметы"));
         inv.setItem(EXIT, ItemUtil.named(Material.BARRIER, "§cВыход", "§7Вернуть вещи и закрыть"));
+        editId.remove(p.getUniqueId());
         p.openInventory(inv);
     }
 
@@ -64,6 +66,7 @@ public class RecipeEditorMenu implements Listener {
         inv.setItem(SAVE, ItemUtil.named(Material.LIME_WOOL, "§aСохранить", "§7Пересохранить рецепт"));
         inv.setItem(CLEAR, ItemUtil.named(Material.YELLOW_WOOL, "§eОчистить", "§7Убрать все предметы"));
         inv.setItem(EXIT, ItemUtil.named(Material.BARRIER, "§cВыход", "§7Вернуть вещи и закрыть"));
+        editId.put(p.getUniqueId(), id);
         p.openInventory(inv);
     }
 
@@ -101,6 +104,8 @@ public class RecipeEditorMenu implements Listener {
                     p.sendMessage(Text.color(plugin.prefix() + plugin.msg("recipe_fill_both")));
                     return;
                 }
+                String old = editId.remove(p.getUniqueId());
+                if (old != null) storage.deleteWorkbenchRecipeAsync(old, ok -> {});
                 String id = storage.saveShapedRecipe(grid, unghost(res.clone()));
                 p.sendMessage(Text.color(plugin.prefix() + plugin.msg("saved_recipe", "id", id)));
                 return;
@@ -136,6 +141,7 @@ public class RecipeEditorMenu implements Listener {
         for (int s : ING) returnIfReal(he, inv.getItem(s));
         returnIfReal(he, inv.getItem(RES));
         cleanupGhostEverywhere((Player) he);
+        editId.remove(he.getUniqueId());
     }
 
     private void returnIfReal(HumanEntity p, ItemStack it) {

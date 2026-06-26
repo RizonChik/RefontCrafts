@@ -98,6 +98,7 @@ public class Database {
             st.executeUpdate("CREATE TABLE IF NOT EXISTS shapeless_recipes (" +
                     "id VARCHAR(64) PRIMARY KEY," +
                     "result TEXT NOT NULL," +
+                    "shaped INT NOT NULL DEFAULT 0," +
                     "created_at BIGINT NOT NULL" +
                     ")");
             st.executeUpdate("CREATE TABLE IF NOT EXISTS shapeless_ingredients (" +
@@ -123,6 +124,11 @@ public class Database {
         if ("mysql".equalsIgnoreCase(activeType)) {
             try (Connection cn = getConnection(); Statement st = cn.createStatement()) {
                 try { st.executeUpdate("ALTER TABLE shapeless_recipes MODIFY result TEXT NOT NULL"); } catch (Throwable ignored) {}
+                boolean hadShaped = columnExists(cn, "shapeless_recipes", "shaped");
+                if (!hadShaped) {
+                    try { st.executeUpdate("ALTER TABLE shapeless_recipes ADD COLUMN shaped INT NOT NULL DEFAULT 0"); } catch (Throwable ignored) {}
+                    try { st.executeUpdate("UPDATE shapeless_recipes SET shaped=1 WHERE id IN (SELECT recipe_id FROM shapeless_ingredients GROUP BY recipe_id HAVING COUNT(*) = 9)"); } catch (Throwable ignored) {}
+                }
                 try { st.executeUpdate("ALTER TABLE shapeless_ingredients MODIFY item TEXT NOT NULL"); } catch (Throwable ignored) {}
                 try { st.executeUpdate("ALTER TABLE anvil_recipes MODIFY left_item TEXT NOT NULL, MODIFY right_item TEXT NOT NULL, MODIFY result TEXT NOT NULL"); } catch (Throwable ignored) {}
             }
@@ -132,9 +138,14 @@ public class Database {
         try (Connection cn = getConnection(); Statement st = cn.createStatement()) {
             if (sqliteNeedsRebuild(cn, "shapeless_recipes", "result")) {
                 st.executeUpdate("ALTER TABLE shapeless_recipes RENAME TO shapeless_recipes_v1");
-                st.executeUpdate("CREATE TABLE shapeless_recipes (id VARCHAR(64) PRIMARY KEY, result TEXT NOT NULL, created_at BIGINT NOT NULL)");
-                st.executeUpdate("INSERT INTO shapeless_recipes (id,result,created_at) SELECT id,result,created_at FROM shapeless_recipes_v1");
+                st.executeUpdate("CREATE TABLE shapeless_recipes (id VARCHAR(64) PRIMARY KEY, result TEXT NOT NULL, shaped INT NOT NULL DEFAULT 0, created_at BIGINT NOT NULL)");
+                st.executeUpdate("INSERT INTO shapeless_recipes (id,result,shaped,created_at) SELECT id,result,0,created_at FROM shapeless_recipes_v1");
                 st.executeUpdate("DROP TABLE shapeless_recipes_v1");
+            }
+            boolean hadShaped = columnExists(cn, "shapeless_recipes", "shaped");
+            if (!hadShaped) {
+                try { st.executeUpdate("ALTER TABLE shapeless_recipes ADD COLUMN shaped INT NOT NULL DEFAULT 0"); } catch (Throwable ignored) {}
+                try { st.executeUpdate("UPDATE shapeless_recipes SET shaped=1 WHERE id IN (SELECT recipe_id FROM shapeless_ingredients GROUP BY recipe_id HAVING COUNT(*) = 9)"); } catch (Throwable ignored) {}
             }
             if (sqliteNeedsRebuild(cn, "shapeless_ingredients", "item")) {
                 st.executeUpdate("ALTER TABLE shapeless_ingredients RENAME TO shapeless_ingredients_v1");
@@ -166,6 +177,27 @@ public class Database {
                 }
             }
         } catch (Throwable ignored) {}
+        return false;
+    }
+
+    private boolean columnExists(Connection cn, String table, String column) {
+        try (Statement st = cn.createStatement();
+             ResultSet ignored = st.executeQuery("SELECT " + column + " FROM " + table + " WHERE 1=0")) {
+            return true;
+        } catch (Throwable ignored) {}
+
+        try (ResultSet rs = cn.getMetaData().getColumns(null, null, table, column)) {
+            if (rs.next()) return true;
+        } catch (Throwable ignored) {}
+
+        try (Statement st = cn.createStatement();
+             ResultSet rs = st.executeQuery("PRAGMA table_info('" + table + "')")) {
+            while (rs.next()) {
+                String name = rs.getString("name");
+                if (name != null && name.equalsIgnoreCase(column)) return true;
+            }
+        } catch (Throwable ignored) {}
+
         return false;
     }
 }

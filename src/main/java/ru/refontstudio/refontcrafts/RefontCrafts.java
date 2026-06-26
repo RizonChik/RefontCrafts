@@ -15,8 +15,6 @@ import ru.refontstudio.refontcrafts.util.ChatLog;
 import ru.refontstudio.refontcrafts.util.ChatLogger;
 import ru.refontstudio.refontcrafts.util.Text;
 
-import java.util.logging.Handler;
-
 public final class RefontCrafts extends JavaPlugin {
     private static RefontCrafts instance;
     private Database database;
@@ -24,6 +22,7 @@ public final class RefontCrafts extends JavaPlugin {
     private RecipeEditorMenu recipeMenu;
     private AnvilEditorMenu anvilMenu;
     private RecipeBrowserMenu browserMenu;
+    private ChatLogger chatLogger;
     private boolean clickAnvilMode;
 
     public static RefontCrafts getInstance() { return instance; }
@@ -40,9 +39,8 @@ public final class RefontCrafts extends JavaPlugin {
         saveDefaultConfig();
         new ru.refontstudio.refontcrafts.util.ConfigUpdater(this).writePretty();
         reloadConfig();
-        getLogger().setUseParentHandlers(false);
-        for (Handler h : getLogger().getHandlers()) getLogger().removeHandler(h);
-        getLogger().addHandler(new ChatLogger());
+        chatLogger = new ChatLogger();
+        getLogger().addHandler(chatLogger);
         database = new Database(this);
         storage = new RecipeStorage(this, database);
         recipeMenu = new RecipeEditorMenu(this, storage);
@@ -73,6 +71,10 @@ public final class RefontCrafts extends JavaPlugin {
         if (storage != null) {
             storage.shutdown();
             storage.unregisterAllShapeless();
+        }
+        if (chatLogger != null) {
+            getLogger().removeHandler(chatLogger);
+            chatLogger = null;
         }
     }
 
