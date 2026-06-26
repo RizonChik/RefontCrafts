@@ -23,6 +23,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.*;
+import java.util.function.Consumer;
 
 public class RecipeStorage {
     private final RefontCrafts plugin;
@@ -31,6 +32,7 @@ public class RecipeStorage {
     private final Map<String, AnvilRecipe> anvil = new LinkedHashMap<>();
     private final Map<String, WorkbenchRecipe> workbench = new LinkedHashMap<>();
     private volatile boolean closed = false;
+    private int revision = 0;
 
     public RecipeStorage(RefontCrafts plugin, Database db) {
         this.plugin = plugin;
@@ -42,6 +44,7 @@ public class RecipeStorage {
 
     public int shapelessCount() { return workbench.size(); }
     public int anvilCount() { return anvil.size(); }
+    public int revision() { return revision; }
     public Collection<AnvilRecipe> getAnvilRecipes() { return anvil.values(); }
     public Collection<WorkbenchRecipe> getWorkbenchRecipes() { return workbench.values(); }
     public WorkbenchRecipe getWorkbenchRecipe(String id) { return workbench.get(id); }
@@ -63,7 +66,7 @@ public class RecipeStorage {
             List<AnvilRecipe> anvilList = new ArrayList<>();
 
             try (Connection cn = db.getConnection();
-                 PreparedStatement ps = cn.prepareStatement("SELECT id,result FROM shapeless_recipes ORDER BY created_at ASC");
+                 PreparedStatement ps = cn.prepareStatement("SELECT id,result,shaped FROM shapeless_recipes ORDER BY created_at ASC");
                  ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     String id = rs.getString(1);
@@ -84,7 +87,7 @@ public class RecipeStorage {
                     ItemStack res = ItemCodec.parseString(resStr);
                     if (res == null || res.getType().isAir()) continue;
 
-                    boolean shaped = raw.size() == 9;
+                    boolean shaped = rs.getInt(3) != 0;
                     if (shaped) {
                         List<ItemStack> payload = new ArrayList<>(9);
                         for (int i = 0; i < 9; i++) {
@@ -148,6 +151,7 @@ public class RecipeStorage {
                         workbench.put(s.id, new WorkbenchRecipe(s.id, s.ingredients, s.result, s.shaped));
                     }
                     for (AnvilRecipe a : anvilList) anvil.put(a.id, a);
+                    revision++;
                     if (onDone != null) onDone.run();
                 });
             } catch (IllegalPluginAccessException ignored) {}
@@ -206,11 +210,13 @@ public class RecipeStorage {
                     String id = rs.getString("id");
                     String result = rs.getString("result");
                     long created = rs.getLong("created_at");
+                    int shaped = recipeShapedFromSource(scn, id);
                     try (Connection dcn = dst.getConnection();
-                         PreparedStatement ins = dcn.prepareStatement("INSERT INTO shapeless_recipes(id,result,created_at) VALUES(?,?,?)")) {
+                         PreparedStatement ins = dcn.prepareStatement("INSERT INTO shapeless_recipes(id,result,shaped,created_at) VALUES(?,?,?,?)")) {
                         ins.setString(1, id);
                         ins.setString(2, result);
-                        ins.setLong(3, created);
+                        ins.setInt(3, shaped);
+                        ins.setLong(4, created);
                         ins.executeUpdate();
                     }
                     try (PreparedStatement pi = scn.prepareStatement("SELECT ord,item FROM shapeless_ingredients WHERE recipe_id=? ORDER BY ord ASC")) {
@@ -250,6 +256,24 @@ public class RecipeStorage {
         }
     }
 
+    private int recipeShapedFromSource(Connection cn, String id) {
+        try (PreparedStatement ps = cn.prepareStatement("SELECT shaped FROM shapeless_recipes WHERE id=?")) {
+            ps.setString(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return rs.getInt(1) != 0 ? 1 : 0;
+            }
+        } catch (Throwable ignored) {}
+
+        try (PreparedStatement ps = cn.prepareStatement("SELECT COUNT(*) FROM shapeless_ingredients WHERE recipe_id=?")) {
+            ps.setString(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return rs.getInt(1) == 9 ? 1 : 0;
+            }
+        } catch (Throwable ignored) {}
+
+        return 0;
+    }
+
     public void bootstrapFromConfigIfNeeded() {
         FileConfiguration c = plugin.getConfig();
         if (!isDbEmpty(db)) return;
@@ -264,10 +288,11 @@ public class RecipeStorage {
                 String rid = "s_" + System.currentTimeMillis() + "_" + id;
                 long now = System.currentTimeMillis();
                 try (Connection cn = db.getConnection();
-                     PreparedStatement ins = cn.prepareStatement("INSERT INTO shapeless_recipes(id,result,created_at) VALUES(?,?,?)")) {
+                     PreparedStatement ins = cn.prepareStatement("INSERT INTO shapeless_recipes(id,result,shaped,created_at) VALUES(?,?,?,?)")) {
                     ins.setString(1, rid);
                     ins.setString(2, resStr);
-                    ins.setLong(3, now);
+                    ins.setInt(3, 0);
+                    ins.setLong(4, now);
                     ins.executeUpdate();
                     int ord = 0;
                     for (String it : list) {
@@ -311,10 +336,11 @@ public class RecipeStorage {
     }
 
     public String saveShapedRecipe(List<ItemStack> matrix9, ItemStack result) {
-        String id = "s_" + System.currentTimeMillis();
+        String id = "s_" + UUID.randomUUID().toString().replace("-", "");
         List<ItemStack> copy = normalizeTo9(matrix9);
         registerWorkbench(id, copy, ItemUtil.cloneWithAmount(result, Math.max(1, result.getAmount())), true);
         workbench.put(id, new WorkbenchRecipe(id, copy, ItemUtil.cloneWithAmount(result, Math.max(1, result.getAmount())), true));
+        revision++;
         boolean async = plugin.getConfig().getBoolean("database.async_save", true);
         Runnable task = () -> {
             boolean ok = tryInsertWorkbench(id, copy, result);
@@ -331,11 +357,12 @@ public class RecipeStorage {
     }
 
     public String saveShapelessRecipe(List<ItemStack> ingredients, ItemStack result) {
-        String id = "s_" + System.currentTimeMillis();
+        String id = "s_" + UUID.randomUUID().toString().replace("-", "");
         List<ItemStack> copy = new ArrayList<>();
         for (ItemStack it : ingredients) copy.add(ItemUtil.cloneWithAmount(it, 1));
         registerWorkbench(id, copy, ItemUtil.cloneWithAmount(result, Math.max(1, result.getAmount())), false);
         workbench.put(id, new WorkbenchRecipe(id, copy, ItemUtil.cloneWithAmount(result, Math.max(1, result.getAmount())), false));
+        revision++;
         boolean async = plugin.getConfig().getBoolean("database.async_save", true);
         Runnable task = () -> {
             boolean ok = tryInsertShapeless(id, copy, result);
@@ -352,8 +379,9 @@ public class RecipeStorage {
     }
 
     public String saveAnvilRecipe(ItemStack left, ItemStack right, ItemStack result, int cost) {
-        String id = "a_" + System.currentTimeMillis();
+        String id = "a_" + UUID.randomUUID().toString().replace("-", "");
         anvil.put(id, new AnvilRecipe(id, left.clone(), right.clone(), result.clone(), cost));
+        revision++;
         boolean async = plugin.getConfig().getBoolean("database.async_save", true);
         Runnable task = () -> {
             boolean ok = tryInsertAnvil(id, left, right, result, cost);
@@ -367,8 +395,54 @@ public class RecipeStorage {
     }
 
     public boolean deleteWorkbenchRecipe(String id) {
-        unregisterById(id);
-        workbench.remove(id);
+        boolean ok = deleteWorkbenchFromDatabase(id);
+        if (ok) {
+            unregisterById(id);
+            workbench.remove(id);
+            revision++;
+        }
+        return ok;
+    }
+
+    public boolean deleteAnvilRecipe(String id) {
+        boolean ok = deleteAnvilFromDatabase(id);
+        if (ok) {
+            anvil.remove(id);
+            revision++;
+        }
+        return ok;
+    }
+
+    public void deleteWorkbenchRecipeAsync(String id, Consumer<Boolean> callback) {
+        if (!alive()) return;
+        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+            boolean ok = deleteWorkbenchFromDatabase(id);
+            runSync(() -> {
+                if (ok) {
+                    unregisterById(id);
+                    workbench.remove(id);
+                    revision++;
+                }
+                if (callback != null) callback.accept(ok);
+            });
+        });
+    }
+
+    public void deleteAnvilRecipeAsync(String id, Consumer<Boolean> callback) {
+        if (!alive()) return;
+        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+            boolean ok = deleteAnvilFromDatabase(id);
+            runSync(() -> {
+                if (ok) {
+                    anvil.remove(id);
+                    revision++;
+                }
+                if (callback != null) callback.accept(ok);
+            });
+        });
+    }
+
+    private boolean deleteWorkbenchFromDatabase(String id) {
         try (Connection cn = db.getConnection();
              PreparedStatement d1 = cn.prepareStatement("DELETE FROM shapeless_ingredients WHERE recipe_id=?");
              PreparedStatement d2 = cn.prepareStatement("DELETE FROM shapeless_recipes WHERE id=?")) {
@@ -382,8 +456,7 @@ public class RecipeStorage {
         }
     }
 
-    public boolean deleteAnvilRecipe(String id) {
-        anvil.remove(id);
+    private boolean deleteAnvilFromDatabase(String id) {
         try (Connection cn = db.getConnection();
              PreparedStatement d = cn.prepareStatement("DELETE FROM anvil_recipes WHERE id=?")) {
             d.setString(1, id);
@@ -396,10 +469,11 @@ public class RecipeStorage {
 
     private boolean tryInsertWorkbench(String id, List<ItemStack> matrix9, ItemStack result) {
         try (Connection cn = db.getConnection();
-             PreparedStatement ins = cn.prepareStatement("INSERT INTO shapeless_recipes(id,result,created_at) VALUES(?,?,?)")) {
+             PreparedStatement ins = cn.prepareStatement("INSERT INTO shapeless_recipes(id,result,shaped,created_at) VALUES(?,?,?,?)")) {
             ins.setString(1, id);
             ins.setString(2, ItemCodec.formatString(ItemUtil.cloneWithAmount(result, Math.max(1, result.getAmount()))));
-            ins.setLong(3, System.currentTimeMillis());
+            ins.setInt(3, 1);
+            ins.setLong(4, System.currentTimeMillis());
             ins.executeUpdate();
             for (int i = 0; i < 9; i++) {
                 try (PreparedStatement insI = cn.prepareStatement("INSERT INTO shapeless_ingredients(recipe_id,ord,item) VALUES(?,?,?)")) {
@@ -415,10 +489,11 @@ public class RecipeStorage {
                 db.activateFailoverSqlite();
                 try { db.init(); } catch (Throwable ignored) {}
                 try (Connection cn = db.getConnection();
-                     PreparedStatement ins = cn.prepareStatement("INSERT INTO shapeless_recipes(id,result,created_at) VALUES(?,?,?)")) {
+                     PreparedStatement ins = cn.prepareStatement("INSERT INTO shapeless_recipes(id,result,shaped,created_at) VALUES(?,?,?,?)")) {
                     ins.setString(1, id);
                     ins.setString(2, ItemCodec.formatString(ItemUtil.cloneWithAmount(result, Math.max(1, result.getAmount()))));
-                    ins.setLong(3, System.currentTimeMillis());
+                    ins.setInt(3, 1);
+                    ins.setLong(4, System.currentTimeMillis());
                     ins.executeUpdate();
                     for (int i = 0; i < 9; i++) {
                         try (PreparedStatement insI = cn.prepareStatement("INSERT INTO shapeless_ingredients(recipe_id,ord,item) VALUES(?,?,?)")) {
@@ -437,10 +512,11 @@ public class RecipeStorage {
 
     private boolean tryInsertShapeless(String id, List<ItemStack> copy, ItemStack result) {
         try (Connection cn = db.getConnection();
-             PreparedStatement ins = cn.prepareStatement("INSERT INTO shapeless_recipes(id,result,created_at) VALUES(?,?,?)")) {
+             PreparedStatement ins = cn.prepareStatement("INSERT INTO shapeless_recipes(id,result,shaped,created_at) VALUES(?,?,?,?)")) {
             ins.setString(1, id);
             ins.setString(2, ItemCodec.formatString(ItemUtil.cloneWithAmount(result, Math.max(1, result.getAmount()))));
-            ins.setLong(3, System.currentTimeMillis());
+            ins.setInt(3, 0);
+            ins.setLong(4, System.currentTimeMillis());
             ins.executeUpdate();
             int ord = 0;
             for (ItemStack it : copy) {
@@ -457,10 +533,11 @@ public class RecipeStorage {
                 db.activateFailoverSqlite();
                 try { db.init(); } catch (Throwable ignored) {}
                 try (Connection cn = db.getConnection();
-                     PreparedStatement ins = cn.prepareStatement("INSERT INTO shapeless_recipes(id,result,created_at) VALUES(?,?,?)")) {
+                     PreparedStatement ins = cn.prepareStatement("INSERT INTO shapeless_recipes(id,result,shaped,created_at) VALUES(?,?,?,?)")) {
                     ins.setString(1, id);
                     ins.setString(2, ItemCodec.formatString(ItemUtil.cloneWithAmount(result, Math.max(1, result.getAmount()))));
-                    ins.setLong(3, System.currentTimeMillis());
+                    ins.setInt(3, 0);
+                    ins.setLong(4, System.currentTimeMillis());
                     ins.executeUpdate();
                     int ord = 0;
                     for (ItemStack it : copy) {
@@ -511,7 +588,7 @@ public class RecipeStorage {
 
     private void registerWorkbench(String id, List<ItemStack> ingredients, ItemStack result, boolean shaped) {
         if (!alive()) return;
-        if (shaped && ingredients.size() == 9 && plugin.workbenchStrictShape()) {
+        if (shaped && ingredients.size() == 9) {
             registerShaped(id, ingredients, result);
         } else {
             registerShapeless(id, ingredients, result);

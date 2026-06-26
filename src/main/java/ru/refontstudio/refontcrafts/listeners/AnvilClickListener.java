@@ -12,8 +12,6 @@ import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.inventory.meta.PotionMeta;
 import ru.refontstudio.refontcrafts.RefontCrafts;
 import ru.refontstudio.refontcrafts.storage.RecipeStorage;
 import ru.refontstudio.refontcrafts.storage.RecipeStorage.AnvilRecipe;
@@ -129,28 +127,7 @@ public class AnvilClickListener implements Listener {
     }
 
     private boolean matches(ItemStack actual, ItemStack recipe) {
-        if (plugin.exactMeta()) return ItemUtil.similarExact(actual, ItemUtil.cloneWithAmount(recipe, actual.getAmount()));
-        if (isPotion(actual.getType()) && isPotion(recipe.getType())) return potionBaseEquals(actual, recipe);
-        return ItemUtil.similarType(actual, recipe);
-    }
-
-    private boolean potionBaseEquals(ItemStack a, ItemStack b) {
-        if (a == null || b == null) return false;
-        if (!isPotion(a.getType()) || !isPotion(b.getType())) return false;
-        if (a.getType() != b.getType()) return false;
-        ItemMeta am = a.getItemMeta();
-        ItemMeta bm = b.getItemMeta();
-        if (!(am instanceof PotionMeta) || !(bm instanceof PotionMeta)) return false;
-        PotionMeta ap = (PotionMeta) am;
-        PotionMeta bp = (PotionMeta) bm;
-        if (ap.getBasePotionData() == null || bp.getBasePotionData() == null) return false;
-        return ap.getBasePotionData().getType() == bp.getBasePotionData().getType()
-                && ap.getBasePotionData().isExtended() == bp.getBasePotionData().isExtended()
-                && ap.getBasePotionData().isUpgraded() == bp.getBasePotionData().isUpgraded();
-    }
-
-    private boolean isPotion(Material m) {
-        return m == Material.POTION || m == Material.SPLASH_POTION || m == Material.LINGERING_POTION;
+        return ItemUtil.matchesIngredient(actual, ItemUtil.cloneWithAmount(recipe, actual.getAmount()), plugin.exactMeta());
     }
 
     private boolean isBook(Material m) {

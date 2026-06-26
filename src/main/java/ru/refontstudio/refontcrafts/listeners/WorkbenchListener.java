@@ -18,6 +18,7 @@ import org.bukkit.inventory.RecipeChoice;
 import org.bukkit.inventory.ShapedRecipe;
 import org.bukkit.inventory.ShapelessRecipe;
 import ru.refontstudio.refontcrafts.RefontCrafts;
+import ru.refontstudio.refontcrafts.util.ItemUtil;
 
 import java.lang.reflect.Method;
 import java.util.*;
@@ -452,8 +453,7 @@ public class WorkbenchListener implements Listener {
             }
             ItemStack have = i < matrix.length ? matrix[i] : null;
             if (have == null || have.getType() == Material.AIR) return 0;
-            if (exact) { if (!have.isSimilar(need)) return 0; }
-            else { if (have.getType() != need.getType()) return 0; }
+            if (!ItemUtil.matchesIngredient(have, need, exact)) return 0;
             int can = Math.max(0, have.getAmount() / Math.max(1, need.getAmount()));
             possible = Math.min(possible, can);
         }
@@ -483,11 +483,7 @@ public class WorkbenchListener implements Listener {
             if (left[i] <= 0) continue;
             ItemStack have = items[i];
             if (have == null || have.getType() == Material.AIR) continue;
-            if (exact) {
-                if (!have.isSimilar(need)) continue;
-            } else {
-                if (have.getType() != need.getType()) continue;
-            }
+            if (!ItemUtil.matchesIngredient(have, need, exact)) continue;
             return i;
         }
         return -1;

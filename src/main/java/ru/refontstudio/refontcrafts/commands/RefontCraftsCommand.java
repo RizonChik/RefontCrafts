@@ -47,10 +47,18 @@ public class RefontCraftsCommand implements CommandExecutor, TabCompleter, Liste
         }
         String sub = args[0].toLowerCase();
         if (sub.equals("recipe")) {
+            if (!p.hasPermission("refontcrafts.admin")) {
+                p.sendMessage(plugin.msg("no_permission"));
+                return true;
+            }
             plugin.recipeMenu().openEditor(p);
             return true;
         }
         if (sub.equals("anvil")) {
+            if (!p.hasPermission("refontcrafts.admin")) {
+                p.sendMessage(plugin.msg("no_permission"));
+                return true;
+            }
             plugin.anvilMenu().openEditor(p);
             return true;
         }
@@ -67,6 +75,10 @@ public class RefontCraftsCommand implements CommandExecutor, TabCompleter, Liste
             return true;
         }
         if (sub.equals("reload")) {
+            if (!p.hasPermission("refontcrafts.admin")) {
+                p.sendMessage(plugin.msg("no_permission"));
+                return true;
+            }
             plugin.reloadAll();
             p.sendMessage(plugin.msg("reloaded"));
             return true;

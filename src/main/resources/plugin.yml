@@ -1,5 +1,5 @@
 name: RefontCrafts
-version: '1.0.6'
+version: '1.0.7'
 main: ru.refontstudio.refontcrafts.RefontCrafts
 api-version: '1.16'
 softdepend:
