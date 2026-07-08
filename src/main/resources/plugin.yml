@@ -1,5 +1,5 @@
 name: RefontCrafts
-version: '1.0.7'
+version: '1.0.8'
 main: ru.refontstudio.refontcrafts.RefontCrafts
 api-version: '1.16'
 softdepend:
@@ -15,5 +15,34 @@ commands:
 permissions:
   refontcrafts.use:
     default: true
+  refontcrafts.view:
+    default: true
+  refontcrafts.create.workbench:
+    default: op
+  refontcrafts.create.anvil:
+    default: op
+  refontcrafts.edit.workbench:
+    default: op
+  refontcrafts.edit.anvil:
+    default: op
+  refontcrafts.delete.workbench:
+    default: op
+  refontcrafts.delete.anvil:
+    default: op
+  refontcrafts.reload:
+    default: op
+  refontcrafts.notify:
+    default: op
   refontcrafts.admin:
     default: op
+    children:
+      refontcrafts.use: true
+      refontcrafts.view: true
+      refontcrafts.create.workbench: true
+      refontcrafts.create.anvil: true
+      refontcrafts.edit.workbench: true
+      refontcrafts.edit.anvil: true
+      refontcrafts.delete.workbench: true
+      refontcrafts.delete.anvil: true
+      refontcrafts.reload: true
+      refontcrafts.notify: true

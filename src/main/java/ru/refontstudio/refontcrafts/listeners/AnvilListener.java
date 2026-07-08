@@ -48,43 +48,39 @@ public class AnvilListener implements Listener {
         if (isAir(a) || isAir(b)) return;
 
         ensureIndex();
-        List<AnvilRecipe> candidates = index.getOrDefault(key(a.getType(), b.getType()), Collections.<AnvilRecipe>emptyList());
-        if (candidates.isEmpty()) return;
+        Match match = findMatch(a, b, null);
+        if (match == null) return;
 
         Player viewer = null;
         for (HumanEntity he : e.getViewers()) {
             if (he instanceof Player) { viewer = (Player) he; break; }
         }
 
-        for (AnvilRecipe r : candidates) {
-            if (!matches(a, r.left) || !matches(b, r.right)) continue;
+        int needA = match.needFirst();
+        int needB = match.needSecond();
+        if (a.getAmount() < needA || b.getAmount() < needB) return;
 
-            int needA = Math.max(1, r.left.getAmount());
-            int needB = Math.max(1, r.right.getAmount());
-            if (a.getAmount() < needA || b.getAmount() < needB) continue;
+        AnvilRecipe r = match.recipe;
+        ItemStack preview = r.result.clone();
+        int perSet = Math.max(1, preview.getAmount());
+        preview.setAmount(perSet);
 
-            ItemStack preview = r.result.clone();
-            int perSet = Math.max(1, preview.getAmount());
-            preview.setAmount(perSet);
-
-            ItemMeta im = preview.getItemMeta();
-            if (im != null) {
-                im.getPersistentDataContainer().set(RESULT_MARK, PersistentDataType.STRING, r.id);
-                preview.setItemMeta(im);
-            }
-
-            e.setResult(preview);
-
-            int cost = Math.max(0, r.cost);
-            boolean creativeIgnores = plugin.getConfig().getBoolean("settings.anvil.creative_ignores_xp", true);
-            boolean opsIgnore = plugin.getConfig().getBoolean("settings.anvil.ops_ignore_xp", false);
-            if (viewer != null) {
-                if (creativeIgnores && viewer.getGameMode() == GameMode.CREATIVE) cost = 0;
-                else if (opsIgnore && viewer.isOp()) cost = 0;
-            }
-            pushRepairCost(e.getInventory(), cost);
-            return;
+        ItemMeta im = preview.getItemMeta();
+        if (im != null) {
+            im.getPersistentDataContainer().set(RESULT_MARK, PersistentDataType.STRING, r.id);
+            preview.setItemMeta(im);
         }
+
+        e.setResult(preview);
+
+        int cost = Math.max(0, r.cost);
+        boolean creativeIgnores = plugin.getConfig().getBoolean("settings.anvil.creative_ignores_xp", true);
+        boolean opsIgnore = plugin.getConfig().getBoolean("settings.anvil.ops_ignore_xp", false);
+        if (viewer != null) {
+            if (creativeIgnores && viewer.getGameMode() == GameMode.CREATIVE) cost = 0;
+            else if (opsIgnore && viewer.isOp()) cost = 0;
+        }
+        pushRepairCost(e.getInventory(), cost);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
@@ -125,34 +121,26 @@ public class AnvilListener implements Listener {
         if (isAir(a) || isAir(b)) return;
 
         ensureIndex();
-        List<AnvilRecipe> candidates = index.getOrDefault(key(a.getType(), b.getType()), Collections.<AnvilRecipe>emptyList());
-        if (candidates.isEmpty()) return;
-
-        AnvilRecipe match = null;
-        for (AnvilRecipe r : candidates) {
-            if (!r.id.equals(rid)) continue;
-            if (!matches(a, r.left) || !matches(b, r.right)) continue;
-            match = r;
-            break;
-        }
+        Match match = findMatch(a, b, rid);
         if (match == null) return;
 
-        int needA = Math.max(1, match.left.getAmount());
-        int needB = Math.max(1, match.right.getAmount());
+        int needA = match.needFirst();
+        int needB = match.needSecond();
         int haveA = a.getAmount();
         int haveB = b.getAmount();
         int setsByItems = Math.min(haveA / needA, haveB / needB);
         if (setsByItems <= 0) return;
 
-        int perSet = Math.max(1, match.result.getAmount());
-        int maxStack = Math.max(1, match.result.getMaxStackSize());
+        AnvilRecipe recipe = match.recipe;
+        int perSet = Math.max(1, recipe.result.getAmount());
+        int maxStack = Math.max(1, recipe.result.getMaxStackSize());
         int previewSets = Math.max(1, resultSlot.getAmount() / perSet);
 
         boolean creativeIgnores = plugin.getConfig().getBoolean("settings.anvil.creative_ignores_xp", true);
         boolean opsIgnore = plugin.getConfig().getBoolean("settings.anvil.ops_ignore_xp", false);
         boolean ignoreXp = (creativeIgnores && p.getGameMode() == GameMode.CREATIVE) || (opsIgnore && p.isOp());
 
-        int setsByXP = match.cost > 0 ? (ignoreXp ? setsByItems : (p.getLevel() / match.cost)) : setsByItems;
+        int setsByXP = recipe.cost > 0 ? (ignoreXp ? setsByItems : (p.getLevel() / recipe.cost)) : setsByItems;
 
         boolean shift = e.isShiftClick();
         boolean numberKey = (e.getClick() == ClickType.NUMBER_KEY);
@@ -160,23 +148,23 @@ public class AnvilListener implements Listener {
 
         int setsWanted;
         if (shift) {
-            int invCap = inventoryCapacityFor(p, match.result);
+            int invCap = inventoryCapacityFor(p, recipe.result);
             if (invCap <= 0) shift = false;
         }
         setsWanted = shift ? setsCap : Math.min(previewSets, setsCap);
 
         if (setsWanted <= 0) {
             e.setCancelled(true);
-            if (!ignoreXp && match.cost > 0 && p.getLevel() < match.cost) {
-                p.sendMessage(plugin.msg("not_enough_levels", "cost", String.valueOf(match.cost)));
-                pushRepairCost(inv, match.cost);
+            if (!ignoreXp && recipe.cost > 0 && p.getLevel() < recipe.cost) {
+                p.sendMessage(plugin.msg("not_enough_levels", "cost", String.valueOf(recipe.cost)));
+                pushRepairCost(inv, recipe.cost);
             }
             return;
         }
 
         int desiredItems = perSet * setsWanted;
         int acceptedItems = 0;
-        ItemStack base = match.result.clone();
+        ItemStack base = recipe.result.clone();
 
         e.setCancelled(true);
 
@@ -228,7 +216,7 @@ public class AnvilListener implements Listener {
 
         int spendA = setsCrafted * needA;
         int spendB = setsCrafted * needB;
-        int spendXP = match.cost * setsCrafted;
+        int spendXP = recipe.cost * setsCrafted;
 
         ItemStack a2 = a.clone();
         ItemStack b2 = b.clone();
@@ -301,6 +289,25 @@ public class AnvilListener implements Listener {
         return ItemUtil.matchesIngredient(actual, ItemUtil.cloneWithAmount(recipe, actual.getAmount()), plugin.exactMeta());
     }
 
+    private Match findMatch(ItemStack first, ItemStack second, String id) {
+        Match direct = findMatchIn(index.getOrDefault(key(first.getType(), second.getType()), Collections.<AnvilRecipe>emptyList()), first, second, id, false);
+        if (direct != null) return direct;
+        if (plugin.anvilStrictOrder()) return null;
+        return findMatchIn(index.getOrDefault(key(second.getType(), first.getType()), Collections.<AnvilRecipe>emptyList()), first, second, id, true);
+    }
+
+    private Match findMatchIn(List<AnvilRecipe> recipes, ItemStack first, ItemStack second, String id, boolean reversed) {
+        for (AnvilRecipe recipe : recipes) {
+            if (id != null && !recipe.id.equals(id)) continue;
+            ItemStack expectedFirst = reversed ? recipe.right : recipe.left;
+            ItemStack expectedSecond = reversed ? recipe.left : recipe.right;
+            if (matches(first, expectedFirst) && matches(second, expectedSecond)) {
+                return new Match(recipe, reversed);
+            }
+        }
+        return null;
+    }
+
     private boolean isAir(ItemStack it) {
         return it == null || it.getType() == Material.AIR;
     }
@@ -323,5 +330,23 @@ public class AnvilListener implements Listener {
 
     private long key(Material left, Material right) {
         return (((long) left.ordinal()) << 32) | (right.ordinal() & 0xffffffffL);
+    }
+
+    private static class Match {
+        private final AnvilRecipe recipe;
+        private final boolean reversed;
+
+        private Match(AnvilRecipe recipe, boolean reversed) {
+            this.recipe = recipe;
+            this.reversed = reversed;
+        }
+
+        private int needFirst() {
+            return Math.max(1, reversed ? recipe.right.getAmount() : recipe.left.getAmount());
+        }
+
+        private int needSecond() {
+            return Math.max(1, reversed ? recipe.left.getAmount() : recipe.right.getAmount());
+        }
     }
 }

@@ -193,7 +193,8 @@ public class RecipeBrowserMenu implements Listener {
             String tp = im.getPersistentDataContainer().get(TYP, PersistentDataType.STRING);
             if (act == null || id == null || tp == null) return;
             if (act.equals("yes")) {
-                if (!isAdmin(p)) {
+                String permission = tp.equals("wb") ? "refontcrafts.delete.workbench" : "refontcrafts.delete.anvil";
+                if (!can(p, permission)) {
                     p.sendMessage(plugin.prefix() + plugin.msg("no_permission"));
                     return;
                 }
@@ -251,7 +252,7 @@ public class RecipeBrowserMenu implements Listener {
 
         if (tp.equals("wb")) {
             if (e.isLeftClick()) {
-                if (!isAdmin(p)) {
+                if (!can(p, "refontcrafts.edit.workbench")) {
                     p.sendMessage(plugin.prefix() + plugin.msg("no_permission"));
                     return;
                 }
@@ -259,7 +260,7 @@ public class RecipeBrowserMenu implements Listener {
                 if (r == null) return;
                 plugin.recipeMenu().openEditorForEdit(p, id, r.ingredients, r.result, r.shaped);
             } else if (e.isRightClick()) {
-                if (!isAdmin(p)) {
+                if (!can(p, "refontcrafts.delete.workbench")) {
                     p.sendMessage(plugin.prefix() + plugin.msg("no_permission"));
                     return;
                 }
@@ -270,7 +271,7 @@ public class RecipeBrowserMenu implements Listener {
         }
         if (tp.equals("anv")) {
             if (e.isLeftClick()) {
-                if (!isAdmin(p)) {
+                if (!can(p, "refontcrafts.edit.anvil")) {
                     p.sendMessage(plugin.prefix() + plugin.msg("no_permission"));
                     return;
                 }
@@ -278,7 +279,7 @@ public class RecipeBrowserMenu implements Listener {
                 if (r == null) return;
                 plugin.anvilMenu().openEditorForEdit(p, r.left, r.right, r.result, r.cost, id);
             } else if (e.isRightClick()) {
-                if (!isAdmin(p)) {
+                if (!can(p, "refontcrafts.delete.anvil")) {
                     p.sendMessage(plugin.prefix() + plugin.msg("no_permission"));
                     return;
                 }
@@ -312,8 +313,8 @@ public class RecipeBrowserMenu implements Listener {
         lastType.remove(e.getPlayer().getUniqueId());
     }
 
-    private boolean isAdmin(Player p) {
-        return p.hasPermission("refontcrafts.admin");
+    private boolean can(Player p, String permission) {
+        return plugin.hasAccess(p, permission);
     }
 
     private void reopenAfterDelete(Player p, boolean ok) {

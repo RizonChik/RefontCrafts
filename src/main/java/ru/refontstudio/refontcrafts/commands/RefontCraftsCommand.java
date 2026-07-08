@@ -42,12 +42,16 @@ public class RefontCraftsCommand implements CommandExecutor, TabCompleter, Liste
         }
         Player p = (Player) s;
         if (args.length == 0) {
+            if (!can(p, "refontcrafts.view")) {
+                p.sendMessage(plugin.msg("no_permission"));
+                return true;
+            }
             openMainMenu(p);
             return true;
         }
         String sub = args[0].toLowerCase();
         if (sub.equals("recipe")) {
-            if (!p.hasPermission("refontcrafts.admin")) {
+            if (!can(p, "refontcrafts.create.workbench")) {
                 p.sendMessage(plugin.msg("no_permission"));
                 return true;
             }
@@ -55,7 +59,7 @@ public class RefontCraftsCommand implements CommandExecutor, TabCompleter, Liste
             return true;
         }
         if (sub.equals("anvil")) {
-            if (!p.hasPermission("refontcrafts.admin")) {
+            if (!can(p, "refontcrafts.create.anvil")) {
                 p.sendMessage(plugin.msg("no_permission"));
                 return true;
             }
@@ -63,6 +67,10 @@ public class RefontCraftsCommand implements CommandExecutor, TabCompleter, Liste
             return true;
         }
         if (sub.equals("view") || sub.equals("browse") || sub.equals("list")) {
+            if (!can(p, "refontcrafts.view")) {
+                p.sendMessage(plugin.msg("no_permission"));
+                return true;
+            }
             if (args.length >= 2 && args[1].equalsIgnoreCase("anvil")) {
                 int page = 1;
                 if (args.length >= 3) try { page = Math.max(1, Integer.parseInt(args[2])); } catch (Throwable ignored) {}
@@ -75,12 +83,16 @@ public class RefontCraftsCommand implements CommandExecutor, TabCompleter, Liste
             return true;
         }
         if (sub.equals("reload")) {
-            if (!p.hasPermission("refontcrafts.admin")) {
+            if (!can(p, "refontcrafts.reload")) {
                 p.sendMessage(plugin.msg("no_permission"));
                 return true;
             }
             plugin.reloadAll();
             p.sendMessage(plugin.msg("reloaded"));
+            return true;
+        }
+        if (!can(p, "refontcrafts.view")) {
+            p.sendMessage(plugin.msg("no_permission"));
             return true;
         }
         openMainMenu(p);
@@ -89,9 +101,20 @@ public class RefontCraftsCommand implements CommandExecutor, TabCompleter, Liste
 
     @Override
     public List<String> onTabComplete(CommandSender s, Command cmd, String alias, String[] args) {
-        if (args.length == 1) return Arrays.asList("view","browse","list","recipe","anvil","reload");
-        if (args.length == 2 && (args[0].equalsIgnoreCase("view") || args[0].equalsIgnoreCase("browse") || args[0].equalsIgnoreCase("list"))) return Arrays.asList("workbench","anvil");
+        if (args.length == 1) {
+            List<String> out = new ArrayList<>();
+            if (can(s, "refontcrafts.view")) out.addAll(Arrays.asList("view","browse","list"));
+            if (can(s, "refontcrafts.create.workbench")) out.add("recipe");
+            if (can(s, "refontcrafts.create.anvil")) out.add("anvil");
+            if (can(s, "refontcrafts.reload")) out.add("reload");
+            return out;
+        }
+        if (args.length == 2 && can(s, "refontcrafts.view") && (args[0].equalsIgnoreCase("view") || args[0].equalsIgnoreCase("browse") || args[0].equalsIgnoreCase("list"))) return Arrays.asList("workbench","anvil");
         return new ArrayList<>();
+    }
+
+    private boolean can(CommandSender sender, String permission) {
+        return plugin.hasAccess(sender, permission);
     }
 
     private void openMainMenu(Player p) {
@@ -129,10 +152,18 @@ public class RefontCraftsCommand implements CommandExecutor, TabCompleter, Liste
         if (act == null) return;
         Player p = (Player) e.getWhoClicked();
         if (act.equals("wb")) {
+            if (!can(p, "refontcrafts.view")) {
+                p.sendMessage(plugin.msg("no_permission"));
+                return;
+            }
             plugin.browserMenu().openWorkbench(p, 1);
             return;
         }
         if (act.equals("anv")) {
+            if (!can(p, "refontcrafts.view")) {
+                p.sendMessage(plugin.msg("no_permission"));
+                return;
+            }
             plugin.browserMenu().openAnvil(p, 1);
             return;
         }

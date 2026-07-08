@@ -1,5 +1,6 @@
 package ru.refontstudio.refontcrafts.listeners;
 
+import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Sound;
@@ -9,8 +10,11 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.CraftItemEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.inventory.PrepareItemCraftEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.CraftingInventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
@@ -26,9 +30,12 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class WorkbenchListener implements Listener {
+    private static final int DEFAULT_RESULT_PREVIEW_LIMIT = 126;
+
     private final RefontCrafts plugin;
     private final RecipeStorage storage;
     private final Map<NamespacedKey, List<ItemStack>> reqCache = new ConcurrentHashMap<>();
+    private final Set<UUID> customPreviewPlayers = ConcurrentHashMap.newKeySet();
 
     public WorkbenchListener(RefontCrafts plugin, RecipeStorage storage) {
         this.plugin = plugin;
@@ -57,28 +64,20 @@ public class WorkbenchListener implements Listener {
             if (possible <= 0) { inv.setResult(null); return; }
 
             ItemStack base = sr.getResult().clone();
-            int perSet = Math.max(1, base.getAmount());
-            int maxStack = Math.max(1, base.getMaxStackSize());
-            int previewSets = Math.min(possible, Math.max(1, maxStack / perSet));
-            base.setAmount(perSet * previewSets);
-            inv.setResult(base);
+            setPreviewResult(inv, previewResult(base, possible));
             return;
         }
 
         if (e.getRecipe() instanceof ShapelessRecipe) {
             ShapelessRecipe sr = (ShapelessRecipe) e.getRecipe();
-            List<ItemStack> req = getShapelessRequirementsCached(sr);
+            List<ItemStack> req = getShapelessRequirements(key, sr);
             if (req.isEmpty()) return;
 
             int possible = computeSetsPossibleShapeless(req, matrix, plugin.exactMeta());
             if (possible <= 0) { inv.setResult(null); return; }
 
             ItemStack base = sr.getResult().clone();
-            int perSet = Math.max(1, base.getAmount());
-            int maxStack = Math.max(1, base.getMaxStackSize());
-            int previewSets = Math.min(possible, Math.max(1, maxStack / perSet));
-            base.setAmount(perSet * previewSets);
-            inv.setResult(base);
+            setPreviewResult(inv, previewResult(base, possible));
         }
     }
 
@@ -107,7 +106,7 @@ public class WorkbenchListener implements Listener {
 
             ItemStack base = sr.getResult().clone();
             int perSet = Math.max(1, base.getAmount());
-            int maxStack = Math.max(1, base.getMaxStackSize());
+            int stackLimit = previewLimit();
 
             boolean shift = e.isShiftClick();
             int setsWanted;
@@ -117,23 +116,19 @@ public class WorkbenchListener implements Listener {
                 setsWanted = Math.min(possible, byInv);
                 if (setsWanted <= 0) { e.setCancelled(true); p.sendMessage(plugin.msg("no_inventory_space")); return; }
             } else {
-                int previewSets = Math.min(possible, Math.max(1, maxStack / perSet));
-                setsWanted = previewSets;
+                setsWanted = previewSetsFor(possible, perSet);
             }
 
             int[] left = simulateConsumeShaped(req9, matrix, setsWanted);
             if (left == null) { e.setCancelled(true); inv.setResult(null); p.updateInventory(); return; }
 
             int totalItems = perSet * setsWanted;
-            ItemStack out = base.clone(); out.setAmount(totalItems);
 
             e.setCancelled(true);
 
             if (shift) {
-                Map<Integer, ItemStack> rem = p.getInventory().addItem(out);
-                if (!rem.isEmpty()) {
-                    int given = totalItems, back = 0; for (ItemStack r : rem.values()) if (r != null) back += r.getAmount();
-                    int accepted = Math.max(0, given - back);
+                int accepted = addToInventory(p.getInventory(), base, totalItems);
+                if (accepted < totalItems) {
                     int setsAccepted = accepted / perSet;
                     left = simulateConsumeShaped(req9, matrix, setsAccepted);
                     if (left == null || setsAccepted <= 0) { p.sendMessage(plugin.msg("no_inventory_space")); return; }
@@ -142,9 +137,15 @@ public class WorkbenchListener implements Listener {
             } else {
                 ItemStack cursor = p.getItemOnCursor();
                 int canOnCursor;
-                if (cursor == null || cursor.getType() == Material.AIR) canOnCursor = maxStack;
-                else if (cursor.isSimilar(base)) canOnCursor = Math.max(0, maxStack - cursor.getAmount());
+                if (cursor == null || cursor.getType() == Material.AIR) canOnCursor = stackLimit;
+                else if (cursor.isSimilar(base)) canOnCursor = Math.max(0, stackLimit - cursor.getAmount());
                 else canOnCursor = 0;
+                int totalCapacity = canOnCursor + capacityForItem(p.getInventory(), base);
+                setsWanted = Math.min(setsWanted, Math.max(0, totalCapacity / perSet));
+                if (setsWanted <= 0) { p.sendMessage(plugin.msg("no_inventory_space")); return; }
+                totalItems = perSet * setsWanted;
+                left = simulateConsumeShaped(req9, matrix, setsWanted);
+                if (left == null) { inv.setResult(null); p.updateInventory(); return; }
                 int putOnCursor = Math.min(totalItems, canOnCursor);
                 if (putOnCursor > 0) {
                     if (cursor == null || cursor.getType() == Material.AIR) {
@@ -157,10 +158,9 @@ public class WorkbenchListener implements Listener {
                 }
                 int rest = totalItems - putOnCursor;
                 if (rest > 0) {
-                    Map<Integer, ItemStack> rem = p.getInventory().addItem(cloneWithAmount(base, rest));
-                    if (!rem.isEmpty()) {
-                        int back = 0; for (ItemStack r : rem.values()) if (r != null) back += r.getAmount();
-                        int accepted = Math.max(0, rest - back) + putOnCursor;
+                    int acceptedRest = addToInventory(p.getInventory(), base, rest);
+                    if (acceptedRest < rest) {
+                        int accepted = acceptedRest + putOnCursor;
                         int setsAccepted = accepted / perSet;
                         left = simulateConsumeShaped(req9, matrix, setsAccepted);
                         if (left == null || setsAccepted <= 0) { p.sendMessage(plugin.msg("no_inventory_space")); return; }
@@ -190,7 +190,7 @@ public class WorkbenchListener implements Listener {
 
         if (e.getRecipe() instanceof ShapelessRecipe) {
             ShapelessRecipe sr = (ShapelessRecipe) e.getRecipe();
-            List<ItemStack> req = getShapelessRequirementsCached(sr);
+            List<ItemStack> req = getShapelessRequirements(key, sr);
             if (req.isEmpty()) return;
 
             int possible = computeSetsPossibleShapeless(req, matrix, plugin.exactMeta());
@@ -198,7 +198,7 @@ public class WorkbenchListener implements Listener {
 
             ItemStack base = sr.getResult().clone();
             int perSet = Math.max(1, base.getAmount());
-            int maxStack = Math.max(1, base.getMaxStackSize());
+            int stackLimit = previewLimit();
 
             boolean shift = e.isShiftClick();
             int setsWanted;
@@ -208,23 +208,19 @@ public class WorkbenchListener implements Listener {
                 setsWanted = Math.min(possible, byInv);
                 if (setsWanted <= 0) { e.setCancelled(true); p.sendMessage(plugin.msg("no_inventory_space")); return; }
             } else {
-                int previewSets = Math.min(possible, Math.max(1, maxStack / perSet));
-                setsWanted = previewSets;
+                setsWanted = previewSetsFor(possible, perSet);
             }
 
             int[] left = simulateConsumeShapeless(req, matrix, plugin.exactMeta(), setsWanted);
             if (left == null) { e.setCancelled(true); inv.setResult(null); p.updateInventory(); return; }
 
             int totalItems = perSet * setsWanted;
-            ItemStack out = base.clone(); out.setAmount(totalItems);
 
             e.setCancelled(true);
 
             if (shift) {
-                Map<Integer, ItemStack> rem = p.getInventory().addItem(out);
-                if (!rem.isEmpty()) {
-                    int given = totalItems, back = 0; for (ItemStack r : rem.values()) if (r != null) back += r.getAmount();
-                    int accepted = Math.max(0, given - back);
+                int accepted = addToInventory(p.getInventory(), base, totalItems);
+                if (accepted < totalItems) {
                     int setsAccepted = accepted / perSet;
                     left = simulateConsumeShapeless(req, matrix, plugin.exactMeta(), setsAccepted);
                     if (left == null || setsAccepted <= 0) { p.sendMessage(plugin.msg("no_inventory_space")); return; }
@@ -233,9 +229,15 @@ public class WorkbenchListener implements Listener {
             } else {
                 ItemStack cursor = p.getItemOnCursor();
                 int canOnCursor;
-                if (cursor == null || cursor.getType() == Material.AIR) canOnCursor = maxStack;
-                else if (cursor.isSimilar(base)) canOnCursor = Math.max(0, maxStack - cursor.getAmount());
+                if (cursor == null || cursor.getType() == Material.AIR) canOnCursor = stackLimit;
+                else if (cursor.isSimilar(base)) canOnCursor = Math.max(0, stackLimit - cursor.getAmount());
                 else canOnCursor = 0;
+                int totalCapacity = canOnCursor + capacityForItem(p.getInventory(), base);
+                setsWanted = Math.min(setsWanted, Math.max(0, totalCapacity / perSet));
+                if (setsWanted <= 0) { p.sendMessage(plugin.msg("no_inventory_space")); return; }
+                totalItems = perSet * setsWanted;
+                left = simulateConsumeShapeless(req, matrix, plugin.exactMeta(), setsWanted);
+                if (left == null) { inv.setResult(null); p.updateInventory(); return; }
                 int putOnCursor = Math.min(totalItems, canOnCursor);
                 if (putOnCursor > 0) {
                     if (cursor == null || cursor.getType() == Material.AIR) {
@@ -248,10 +250,9 @@ public class WorkbenchListener implements Listener {
                 }
                 int rest = totalItems - putOnCursor;
                 if (rest > 0) {
-                    Map<Integer, ItemStack> rem = p.getInventory().addItem(cloneWithAmount(base, rest));
-                    if (!rem.isEmpty()) {
-                        int back = 0; for (ItemStack r : rem.values()) if (r != null) back += r.getAmount();
-                        int accepted = Math.max(0, rest - back) + putOnCursor;
+                    int acceptedRest = addToInventory(p.getInventory(), base, rest);
+                    if (acceptedRest < rest) {
+                        int accepted = acceptedRest + putOnCursor;
                         int setsAccepted = accepted / perSet;
                         left = simulateConsumeShapeless(req, matrix, plugin.exactMeta(), setsAccepted);
                         if (left == null || setsAccepted <= 0) { p.sendMessage(plugin.msg("no_inventory_space")); return; }
@@ -276,6 +277,141 @@ public class WorkbenchListener implements Listener {
         }
     }
 
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = false)
+    public void onWorkbenchInputClickRefresh(InventoryClickEvent e) {
+        if (!(e.getWhoClicked() instanceof Player)) return;
+        InventoryType t = e.getView().getTopInventory().getType();
+        if (t != InventoryType.WORKBENCH && t != InventoryType.CRAFTING) return;
+        if (!isMatrixRawSlot(t, e.getRawSlot())) return;
+        scheduleCraftPreviewRefresh((Player) e.getWhoClicked());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = false)
+    public void onWorkbenchInputDragRefresh(InventoryDragEvent e) {
+        if (!(e.getWhoClicked() instanceof Player)) return;
+        InventoryType t = e.getView().getTopInventory().getType();
+        if (t != InventoryType.WORKBENCH && t != InventoryType.CRAFTING) return;
+        for (Integer raw : e.getRawSlots()) {
+            if (raw != null && isMatrixRawSlot(t, raw)) {
+                scheduleCraftPreviewRefresh((Player) e.getWhoClicked());
+                return;
+            }
+        }
+    }
+
+    @EventHandler
+    public void onWorkbenchClose(InventoryCloseEvent e) {
+        customPreviewPlayers.remove(e.getPlayer().getUniqueId());
+    }
+
+    @EventHandler
+    public void onQuit(PlayerQuitEvent e) {
+        customPreviewPlayers.remove(e.getPlayer().getUniqueId());
+    }
+
+    private boolean isMatrixRawSlot(InventoryType t, int raw) {
+        return (t == InventoryType.WORKBENCH && raw >= 1 && raw <= 9)
+                || (t == InventoryType.CRAFTING && raw >= 1 && raw <= 4);
+    }
+
+    private void scheduleCraftPreviewRefresh(Player p) {
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (!(p.getOpenInventory().getTopInventory() instanceof CraftingInventory)) return;
+            CraftingInventory inv = (CraftingInventory) p.getOpenInventory().getTopInventory();
+            ItemStack preview = findCustomPreview(inv);
+            UUID id = p.getUniqueId();
+            if (preview != null) {
+                setPreviewResult(inv, preview);
+                customPreviewPlayers.add(id);
+                p.updateInventory();
+                return;
+            }
+            if (customPreviewPlayers.remove(id) && isCustomResult(inv.getResult())) {
+                inv.setResult(null);
+                p.updateInventory();
+            }
+        });
+    }
+
+    private ItemStack findCustomPreview(CraftingInventory inv) {
+        ItemStack[] matrix = inv.getMatrix();
+        if (matrix == null || matrix.length == 0) return null;
+        boolean exact = plugin.exactMeta();
+        for (RecipeStorage.WorkbenchRecipe r : storage.getWorkbenchRecipes()) {
+            if (r.shaped && plugin.workbenchStrictShape()) {
+                if (matrix.length < 9 || r.ingredients.size() != 9) continue;
+                List<ItemStack> req9 = normalizeGrid(r.ingredients);
+                int possible = computeSetsPossibleShaped(req9, matrix, exact);
+                if (possible <= 0 && plugin.workbenchAllowMirror()) possible = computeSetsPossibleShaped(mirrorGrid(req9), matrix, exact);
+                if (possible > 0) return previewResult(r.result, possible);
+            } else {
+                List<ItemStack> req = normalizeShapeless(r.ingredients);
+                if (req.isEmpty()) continue;
+                int possible = computeSetsPossibleShapeless(req, matrix, exact);
+                if (possible > 0) return previewResult(r.result, possible);
+            }
+        }
+        return null;
+    }
+
+    private List<ItemStack> normalizeGrid(List<ItemStack> src) {
+        List<ItemStack> out = new ArrayList<>(9);
+        for (int i = 0; i < 9; i++) {
+            ItemStack it = i < src.size() ? src.get(i) : null;
+            if (it == null || it.getType() == Material.AIR) out.add(new ItemStack(Material.AIR));
+            else out.add(cloneWithAmount(it, 1));
+        }
+        return out;
+    }
+
+    private List<ItemStack> mirrorGrid(List<ItemStack> req9) {
+        List<ItemStack> out = new ArrayList<>(9);
+        for (int i = 0; i < 9; i++) {
+            int src = (i / 3) * 3 + (2 - (i % 3));
+            ItemStack it = req9.get(src);
+            out.add(it == null ? new ItemStack(Material.AIR) : it.clone());
+        }
+        return out;
+    }
+
+    private List<ItemStack> normalizeShapeless(List<ItemStack> src) {
+        List<ItemStack> out = new ArrayList<>();
+        for (ItemStack it : src) {
+            if (it == null || it.getType() == Material.AIR) continue;
+            out.add(cloneWithAmount(it, 1));
+        }
+        return out;
+    }
+
+    private ItemStack previewResult(ItemStack result, int possible) {
+        ItemStack base = result.clone();
+        int perSet = Math.max(1, base.getAmount());
+        int previewSets = previewSetsFor(possible, perSet);
+        base.setAmount(perSet * previewSets);
+        return base;
+    }
+
+    private int previewSetsFor(int possible, int perSet) {
+        return Math.min(possible, Math.max(1, previewLimit() / Math.max(1, perSet)));
+    }
+
+    private int previewLimit() {
+        return Math.max(1, plugin.getConfig().getInt("settings.workbench_preview_limit", DEFAULT_RESULT_PREVIEW_LIMIT));
+    }
+
+    private void setPreviewResult(CraftingInventory inv, ItemStack item) {
+        try { inv.setMaxStackSize(previewLimit()); } catch (Throwable ignored) {}
+        inv.setResult(item);
+    }
+
+    private boolean isCustomResult(ItemStack item) {
+        if (item == null || item.getType() == Material.AIR) return false;
+        for (RecipeStorage.WorkbenchRecipe r : storage.getWorkbenchRecipes()) {
+            if (ItemUtil.matchesIngredient(item, r.result, plugin.exactMeta())) return true;
+        }
+        return false;
+    }
+
     private Sound safeSound(String name, Sound def) {
         try { return Sound.valueOf(name); } catch (Throwable ignored) { return def; }
     }
@@ -285,6 +421,31 @@ public class WorkbenchListener implements Listener {
         if (k == null) return extractShapeless(sr);
         if (reqCache.size() > 1024) reqCache.clear();
         return reqCache.computeIfAbsent(k, kk -> extractShapeless(sr));
+    }
+
+    private List<ItemStack> getShapelessRequirements(NamespacedKey key, ShapelessRecipe sr) {
+        List<ItemStack> stored = getStoredShapeless(key);
+        if (!stored.isEmpty()) return stored;
+        return getShapelessRequirementsCached(sr);
+    }
+
+    private List<ItemStack> getStoredShapeless(NamespacedKey key) {
+        if (key == null) return Collections.emptyList();
+        String raw = key.getKey();
+        if (!raw.startsWith("shapeless_")) return Collections.emptyList();
+        String id = raw.substring("shapeless_".length());
+
+        RecipeStorage.WorkbenchRecipe recipe = storage.getWorkbenchRecipe(id);
+        if (recipe == null || recipe.shaped) return Collections.emptyList();
+
+        List<ItemStack> out = new ArrayList<>();
+        for (ItemStack it : recipe.ingredients) {
+            if (it == null || it.getType() == Material.AIR) continue;
+            ItemStack one = it.clone();
+            one.setAmount(1);
+            out.add(one);
+        }
+        return out;
     }
 
     private List<ItemStack> extractShapeless(ShapelessRecipe sr) {
@@ -522,12 +683,37 @@ public class WorkbenchListener implements Listener {
     private int capacityForItem(PlayerInventory inv, ItemStack sample) {
         int cap = 0;
         ItemStack[] cont = inv.getStorageContents();
-        int max = sample.getMaxStackSize();
+        int max = previewLimit();
         for (ItemStack it : cont) {
             if (it == null || it.getType() == Material.AIR) cap += max;
             else if (it.isSimilar(sample)) cap += Math.max(0, max - it.getAmount());
         }
         return cap;
+    }
+
+    private int addToInventory(PlayerInventory inv, ItemStack sample, int amount) {
+        int left = Math.max(0, amount);
+        int limit = previewLimit();
+        ItemStack[] cont = inv.getStorageContents();
+        for (int i = 0; i < cont.length && left > 0; i++) {
+            ItemStack it = cont[i];
+            if (it == null || it.getType() == Material.AIR || !it.isSimilar(sample)) continue;
+            int add = Math.min(left, Math.max(0, limit - it.getAmount()));
+            if (add <= 0) continue;
+            ItemStack updated = it.clone();
+            updated.setAmount(it.getAmount() + add);
+            cont[i] = updated;
+            left -= add;
+        }
+        for (int i = 0; i < cont.length && left > 0; i++) {
+            ItemStack it = cont[i];
+            if (it != null && it.getType() != Material.AIR) continue;
+            int add = Math.min(left, limit);
+            cont[i] = cloneWithAmount(sample, add);
+            left -= add;
+        }
+        inv.setStorageContents(cont);
+        return amount - left;
     }
 
     private ItemStack cloneWithAmount(ItemStack it, int amount) {
