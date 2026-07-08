@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Minecraft](https://img.shields.io/badge/Minecraft-1.16.5--1.21.x-4caf50?style=for-the-badge)
+![Minecraft](https://img.shields.io/badge/Minecraft-1.16.5--1.26.x-4caf50?style=for-the-badge)
 ![Java](https://img.shields.io/badge/Java-8%2B%20%2F%2021-f39c12?style=for-the-badge)
 ![Core](https://img.shields.io/badge/Bukkit%20%7C%20Spigot%20%7C%20Paper-blue?style=for-the-badge)
 ![Release](https://img.shields.io/github/v/release/RizonChik/RefontCrafts?style=for-the-badge)
@@ -34,16 +34,16 @@
 
 | Параметр | Значение |
 | --- | --- |
-| Minecraft | `1.16.5 - 1.21.x` |
+| Minecraft | `1.16.5 - 1.26.x` |
 | Ядра | `Bukkit`, `Spigot`, `Paper` |
-| Java | `8+` для старых серверов, `21` для новых 1.21.x сборок |
+| Java | `8+` для старых серверов, `21` для новых 1.26.x сборок |
 | База данных | `SQLite`, `MySQL` |
 
 ---
 
 ## Установка
 
-1. Скачай `RefontCrafts-1.0.8.jar` из [Releases](https://github.com/RizonChik/RefontCrafts/releases/latest).
+1. Скачай `RefontCrafts-1.x.x.jar` из [Releases](https://github.com/RizonChik/RefontCrafts/releases/latest).
 2. Закинь jar в папку `plugins/`.
 3. Перезапусти сервер.
 4. Открой `/rcrafts`.
