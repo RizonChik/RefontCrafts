@@ -1,0 +1,46 @@
+name: Add GPL-3.0 license
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/add-gpl-license.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  add-license:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Add official GPL-3.0 license
+        shell: bash
+        run: |
+          curl --fail --silent --show-error --location \
+            https://www.gnu.org/licenses/gpl-3.0.txt \
+            --output LICENSE
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add LICENSE
+
+          if git diff --cached --quiet; then
+            echo "LICENSE is already up to date."
+            exit 0
+          fi
+
+          git commit -m "Add GPL-3.0 license"
+          git push
+
+      - name: Remove temporary workflow
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          git rm .github/workflows/add-gpl-license.yml
+          git commit -m "Remove temporary license workflow"
+          git push
