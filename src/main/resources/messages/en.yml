@@ -1,0 +1,139 @@
+titles:
+  main: "RefontCrafts"
+  recipe: "Recipe Editor"
+  anvil: "Anvil Editor"
+  browser_workbench: "Workbench Recipes"
+  browser_anvil: "Anvil Recipes"
+  crafts: "All Crafts"
+  craft_preview: "Craft Preview"
+  confirm_delete: "Confirm Delete"
+
+messages:
+  only_player: "&cOnly players can use this command."
+  no_permission: "&cYou don't have permission."
+  recipe_fill_both: "&cFill both ingredients and the result."
+  anvil_fill_both: "&cFill both inputs and the result."
+  saved_recipe: "&aSaved recipe: &f%id%"
+  saved_anvil: "&aSaved anvil recipe: &f%id% &7(cost: &f%cost%&7)"
+  recipe_update_failed: "&cCould not replace the old recipe. Changes were not saved."
+  not_enough_levels: "&cNot enough levels: need &f%cost%"
+  no_inventory_space: "&cNo inventory space."
+  reloaded: "&aConfig and recipes reloaded."
+  loaded_recipes: "&aLoaded recipes: &f%shapeless% &7| &aAnvil: &f%anvil%"
+  editor_preview_hint: "&7This is a preview. Put an item into the slot to replace it."
+
+gui:
+  main:
+    recipe:
+      name: "&bWorkbench editor"
+      lore: "&7Open the workbench recipe editor"
+    anvil:
+      name: "&dAnvil editor"
+      lore: "&7Open the anvil recipe editor"
+    browse:
+      name: "&eBrowse recipes"
+      lore: "&7View all custom recipes"
+    crafts:
+      name: "&aAll crafts"
+      lore: "&7Show all recipes and the available amount"
+    close:
+      name: "&cClose"
+      lore: "&7Close this menu"
+  editor:
+    save:
+      name: "&aSave"
+      lore: "&7Save the recipe"
+      edit_lore: "&7Resave the recipe"
+    clear:
+      name: "&eClear"
+      lore: "&7Remove all items"
+    exit:
+      name: "&cExit"
+      lore: "&7Return items and close"
+    help:
+      name: "&bShift controls"
+      inputs: "&7Shift+left: move to input slots"
+      result: "&7Shift+right or Shift on target: result"
+      number: "&7Hover a slot and press 1-9: hotbar swap"
+      remove: "&7Shift inside editor: return/remove"
+  anvil:
+    minus:
+      name: "&c- Cost"
+      lore: "&7Decrease by 1"
+    plus:
+      name: "&a+ Cost"
+      lore: "&7Increase by 1"
+    cost:
+      name: "&eCost: &f%cost%"
+      lore: "&7Levels spent on craft"
+    save:
+      lore: "&7Save the anvil recipe"
+      edit_lore: "&7Resave the anvil recipe"
+  nav:
+    prev:
+      name: "&e← Previous"
+      lore: "&7Go to the previous page"
+    next:
+      name: "&eNext →"
+      lore: "&7Go to the next page"
+    close:
+      name: "&cClose"
+      lore: "&7Close this menu"
+    back:
+      name: "&e← Back"
+      lore: "&7Return to the list"
+  browser:
+    workbench:
+      type: "&8Type: &fWorkbench"
+      shape:
+        text: "&8Form: %shape%"
+        shaped: "&aShaped"
+        shapeless: "&eShapeless"
+      id: "&8ID: &7%id%"
+      edit: "&7Left click: &aedit"
+      delete: "&7Right click: &cdelete"
+    anvil:
+      type: "&8Type: &fAnvil"
+      id: "&8ID: &7%id%"
+      cost: "&8Cost: &f%cost%"
+      left: "&7Left input: &f%item%"
+      right: "&7Right input: &f%item%"
+      edit: "&7Left click: &aedit"
+      delete: "&7Right click: &cdelete"
+  crafts:
+    summary:
+      name: "&bAll crafts"
+      page: "&7Page: &f%page%&7/&f%pages%"
+      total: "&7Visible crafts: &f%count%"
+      order: "&7Order: &fAnvil first, Workbench second"
+    empty:
+      name: "&cNo custom recipes"
+      lore: "&7Create a workbench or anvil recipe first."
+    type:
+      workbench: "&8Type: &fWorkbench"
+      anvil: "&8Type: &fAnvil"
+    available: "&8Available now: &f%count%"
+    shape:
+      text: "&8Form: &f%shape%"
+      shaped: "&aShaped"
+      shapeless: "&eShapeless"
+    cost: "&8Cost: &f%cost%"
+    how: "&8How to get: &f%ingredients%"
+    id: "&8ID: &7%id%"
+    preview: "&7Left click to preview"
+    ingredients:
+      empty: "&7Nothing"
+  preview:
+    info:
+      name: "&bCraft preview"
+    workbench:
+      type: "&8Type: &fWorkbench"
+      form: "&8Form: &f%shape%"
+      available: "&8Available now: &f%count%"
+      result: "&8Result per craft: &f%amount%"
+      id: "&8ID: &7%id%"
+    anvil:
+      type: "&8Type: &fAnvil"
+      available: "&8Available now: &f%count%"
+      cost: "&8Cost: &f%cost%"
+      id: "&8ID: &7%id%"

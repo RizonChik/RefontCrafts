@@ -2,345 +2,333 @@ package ru.refontstudio.refontcrafts.gui;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
-import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
-import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.persistence.PersistentDataType;
 import ru.refontstudio.refontcrafts.RefontCrafts;
 import ru.refontstudio.refontcrafts.storage.RecipeStorage;
 import ru.refontstudio.refontcrafts.storage.RecipeStorage.AnvilRecipe;
 import ru.refontstudio.refontcrafts.storage.RecipeStorage.WorkbenchRecipe;
+import ru.refontstudio.refontcrafts.util.Compat;
 import ru.refontstudio.refontcrafts.util.ItemUtil;
 import ru.refontstudio.refontcrafts.util.Text;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
-public class RecipeBrowserMenu implements Listener {
+public final class RecipeBrowserMenu implements Listener {
+    private static final int[] VIEW_SLOTS = {
+            10, 11, 12, 13, 14, 15, 16,
+            19, 20, 21, 22, 23, 24, 25,
+            28, 29, 30, 31, 32, 33, 34,
+            37, 38, 39, 40, 41, 42, 43
+    };
+    private static final int PREVIOUS_SLOT = 45;
+    private static final int CLOSE_SLOT = 49;
+    private static final int NEXT_SLOT = 53;
+
     private final RefontCrafts plugin;
     private final RecipeStorage storage;
-
-    private final NamespacedKey NAV;
-    private final NamespacedKey RID;
-    private final NamespacedKey TYP;
-    private final NamespacedKey ACT;
-
-    private final Map<UUID, Integer> pages = new HashMap<>();
-    private final Map<UUID, String> lastType = new HashMap<>();
-    private final Set<UUID> keepStateOnClose = new HashSet<>();
-
-    private static final int[] VIEW_SLOTS = {
-            10,11,12,13,14,15,16,
-            19,20,21,22,23,24,25,
-            28,29,30,31,32,33,34,
-            37,38,39,40,41,42,43
-    };
-    private static final int SLOT_PREV = 45;
-    private static final int SLOT_CLOSE = 49;
-    private static final int SLOT_NEXT = 53;
+    private final Map<UUID, Integer> pages = new HashMap<UUID, Integer>();
+    private final Map<UUID, Map<Integer, EntryRef>> entries = new HashMap<UUID, Map<Integer, EntryRef>>();
 
     public RecipeBrowserMenu(RefontCrafts plugin, RecipeStorage storage) {
         this.plugin = plugin;
         this.storage = storage;
-        this.NAV = new NamespacedKey(plugin, "rc_nav");
-        this.RID = new NamespacedKey(plugin, "rc_rid");
-        this.TYP = new NamespacedKey(plugin, "rc_typ");
-        this.ACT = new NamespacedKey(plugin, "rc_act");
     }
 
-    public void openWorkbench(Player p, int page) {
-        lastType.put(p.getUniqueId(), "wb");
-        pages.put(p.getUniqueId(), Math.max(1, page));
-        String title = plugin.titleBrowseWorkbench();
-        Inventory inv = Bukkit.createInventory(p, 54, title);
-        fillFrame(inv);
-        List<WorkbenchRecipe> list = new ArrayList<>(storage.getWorkbenchRecipes());
-        list.sort(Comparator.comparing(w -> w.id));
-        int per = VIEW_SLOTS.length;
-        int pg = Math.max(1, page);
-        int from = (pg - 1) * per;
-        int to = Math.min(from + per, list.size());
-        int idx = 0;
+    public void openWorkbench(Player player, int page) {
+        List<WorkbenchRecipe> recipes = new ArrayList<WorkbenchRecipe>(storage.getWorkbenchRecipes());
+        Collections.sort(recipes, new Comparator<WorkbenchRecipe>() {
+            @Override
+            public int compare(WorkbenchRecipe first, WorkbenchRecipe second) {
+                return first.id.compareTo(second.id);
+            }
+        });
+
+        int safePage = normalizePage(page, recipes.size());
+        pages.put(player.getUniqueId(), safePage);
+        Map<Integer, EntryRef> refs = new HashMap<Integer, EntryRef>();
+        entries.put(player.getUniqueId(), refs);
+
+        Inventory inventory = createBase(plugin.titleBrowseWorkbench());
+        int from = (safePage - 1) * VIEW_SLOTS.length;
+        int to = Math.min(from + VIEW_SLOTS.length, recipes.size());
+        int shown = 0;
         for (int i = from; i < to; i++) {
-            WorkbenchRecipe r = list.get(i);
-            ItemStack it = r.result.clone();
-            ItemMeta im = it.getItemMeta();
-            List<String> lore = new ArrayList<>();
-            lore.add(Text.color("&8Тип: &fВерстак"));
-            lore.add(Text.color("&8Форма: " + (r.shaped ? "&aСтрогая" : "&eБез формы")));
-            lore.add(Text.color("&8ID: &7" + r.id));
-            lore.add(" ");
-            lore.add(Text.color("§x§f§f§e§2§4§7&lЛКМ &7— &aРедактировать"));
-            lore.add(Text.color("§x§f§0§5§0§5§0&lПКМ &7— &cУдалить"));
-            im.setLore(lore);
-            im.getPersistentDataContainer().set(RID, PersistentDataType.STRING, r.id);
-            im.getPersistentDataContainer().set(TYP, PersistentDataType.STRING, "wb");
-            it.setItemMeta(im);
-            inv.setItem(VIEW_SLOTS[idx++], it);
-        }
-        inv.setItem(SLOT_PREV, navItem("prev"));
-        inv.setItem(SLOT_CLOSE, closeItem());
-        inv.setItem(SLOT_NEXT, navItem("next"));
-        p.openInventory(inv);
-    }
-
-    public void openAnvil(Player p, int page) {
-        lastType.put(p.getUniqueId(), "anv");
-        pages.put(p.getUniqueId(), Math.max(1, page));
-        String title = plugin.titleBrowseAnvil();
-        Inventory inv = Bukkit.createInventory(p, 54, title);
-        fillFrame(inv);
-        List<AnvilRecipe> list = new ArrayList<>(storage.getAnvilRecipes());
-        list.sort(Comparator.comparing(a -> a.id));
-        int per = VIEW_SLOTS.length;
-        int pg = Math.max(1, page);
-        int from = (pg - 1) * per;
-        int to = Math.min(from + per, list.size());
-        int idx = 0;
-        for (int i = from; i < to; i++) {
-            AnvilRecipe r = list.get(i);
-            ItemStack it = r.result.clone();
-            ItemMeta im = it.getItemMeta();
-            List<String> lore = new ArrayList<>();
-            lore.add(Text.color("&8Тип: &fНаковальня"));
-            lore.add(Text.color("&8ID: &7" + r.id));
-            lore.add(Text.color("&8Стоимость: &f" + r.cost));
-            lore.add(" ");
-            lore.add(Text.color("&7Левый вход: &f" + r.left.getType().name()));
-            lore.add(Text.color("&7Правый вход: &f" + r.right.getType().name()));
-            lore.add(" ");
-            lore.add(Text.color("§x§f§f§e§2§4§7&lЛКМ &7— &aРедактировать"));
-            lore.add(Text.color("§x§f§0§5§0§5§0&lПКМ &7— &cУдалить"));
-            im.setLore(lore);
-            im.getPersistentDataContainer().set(RID, PersistentDataType.STRING, r.id);
-            im.getPersistentDataContainer().set(TYP, PersistentDataType.STRING, "anv");
-            it.setItemMeta(im);
-            inv.setItem(VIEW_SLOTS[idx++], it);
-        }
-        inv.setItem(SLOT_PREV, navItem("prev"));
-        inv.setItem(SLOT_CLOSE, closeItem());
-        inv.setItem(SLOT_NEXT, navItem("next"));
-        p.openInventory(inv);
-    }
-
-    private String confirmTitle() {
-        return Text.color("§cПодтверждение удаления");
-    }
-
-    private void openConfirm(Player p, String type, String id, ItemStack preview) {
-        Inventory inv = Bukkit.createInventory(p, 27, confirmTitle());
-        for (int i = 0; i < inv.getSize(); i++) inv.setItem(i, ItemUtil.named(Material.BLACK_STAINED_GLASS_PANE, " "));
-        ItemStack center = preview == null ? ItemUtil.named(Material.PAPER, "&fРецепт") : preview.clone();
-        ItemMeta cim = center.getItemMeta();
-        cim.getPersistentDataContainer().set(RID, PersistentDataType.STRING, id);
-        cim.getPersistentDataContainer().set(TYP, PersistentDataType.STRING, type);
-        center.setItemMeta(cim);
-        inv.setItem(13, center);
-
-        ItemStack yes = ItemUtil.named(Material.LIME_WOOL, "&aДа, удалить");
-        ItemMeta yim = yes.getItemMeta();
-        yim.getPersistentDataContainer().set(ACT, PersistentDataType.STRING, "yes");
-        yim.getPersistentDataContainer().set(RID, PersistentDataType.STRING, id);
-        yim.getPersistentDataContainer().set(TYP, PersistentDataType.STRING, type);
-        yes.setItemMeta(yim);
-
-        ItemStack no = ItemUtil.named(Material.RED_WOOL, "&cНет, назад");
-        ItemMeta nim = no.getItemMeta();
-        nim.getPersistentDataContainer().set(ACT, PersistentDataType.STRING, "no");
-        nim.getPersistentDataContainer().set(RID, PersistentDataType.STRING, id);
-        nim.getPersistentDataContainer().set(TYP, PersistentDataType.STRING, type);
-        no.setItemMeta(nim);
-
-        inv.setItem(11, yes);
-        inv.setItem(15, no);
-        keepStateOnClose.add(p.getUniqueId());
-        p.openInventory(inv);
-    }
-
-    @EventHandler
-    public void onClick(InventoryClickEvent e) {
-        String title = e.getView().getTitle();
-        boolean isWB = Text.plain(title).equals(Text.plain(plugin.titleBrowseWorkbench()));
-        boolean isAN = Text.plain(title).equals(Text.plain(plugin.titleBrowseAnvil()));
-        boolean isCF = Text.plain(title).equals(Text.plain(confirmTitle()));
-        if (!(e.getWhoClicked() instanceof Player)) return;
-        if (!isWB && !isAN && !isCF) return;
-
-        Player p = (Player) e.getWhoClicked();
-        Inventory top = e.getView().getTopInventory();
-        int topSize = top.getSize();
-
-        if (e.getRawSlot() >= topSize) {
-            if (e.isShiftClick()) e.setCancelled(true);
-            return;
-        }
-
-        e.setCancelled(true);
-
-        if (isCF) {
-            ItemStack it = e.getCurrentItem();
-            if (it == null || it.getType() == Material.AIR) return;
-            ItemMeta im = it.getItemMeta();
-            if (im == null) return;
-            String act = im.getPersistentDataContainer().get(ACT, PersistentDataType.STRING);
-            String id = im.getPersistentDataContainer().get(RID, PersistentDataType.STRING);
-            String tp = im.getPersistentDataContainer().get(TYP, PersistentDataType.STRING);
-            if (act == null || id == null || tp == null) return;
-            if (act.equals("yes")) {
-                String permission = tp.equals("wb") ? "refontcrafts.delete.workbench" : "refontcrafts.delete.anvil";
-                if (!can(p, permission)) {
-                    p.sendMessage(plugin.prefix() + plugin.msg("no_permission"));
-                    return;
-                }
-                if (tp.equals("wb")) {
-                    storage.deleteWorkbenchRecipeAsync(id, ok -> reopenAfterDelete(p, ok));
+            WorkbenchRecipe recipe = recipes.get(i);
+            ItemStack icon = recipe.result.clone();
+            ItemMeta meta = icon.getItemMeta();
+            if (meta != null) {
+                List<String> lore = new ArrayList<String>();
+                lore.add(plugin.tr("gui.browser.workbench.type", "&8Type: &fWorkbench"));
+                lore.add(plugin.tr("gui.browser.workbench.shape.text", "&8Form: %shape%",
+                        "shape", recipe.shaped
+                                ? plugin.tr("gui.browser.workbench.shape.shaped", "&aShaped")
+                                : plugin.tr("gui.browser.workbench.shape.shapeless", "&eShapeless")));
+                lore.add(plugin.tr("gui.browser.workbench.id", "&8ID: &7%id%", "id", recipe.id));
+                lore.add(" ");
+                if (canEditWorkbench(player)) {
+                    lore.add(plugin.tr("gui.browser.workbench.edit", "&7Left click: &aedit"));
                 } else {
-                    storage.deleteAnvilRecipeAsync(id, ok -> reopenAfterDelete(p, ok));
+                    lore.add(plugin.tr("gui.crafts.preview", "&7Left click to preview"));
                 }
-                return;
+                lore.add(plugin.tr("gui.browser.workbench.delete", "&7Right click: &cdelete"));
+                meta.setLore(ItemUtil.colorLines(lore));
+                icon.setItemMeta(meta);
             }
-            String last = lastType.getOrDefault(p.getUniqueId(), "wb");
-            int pg = pages.getOrDefault(p.getUniqueId(), 1);
-            if (last.equals("wb")) openWorkbench(p, pg); else openAnvil(p, pg);
-            return;
+            int slot = VIEW_SLOTS[shown++];
+            inventory.setItem(slot, icon);
+            refs.put(slot, new EntryRef("wb", recipe.id));
         }
+        player.openInventory(inventory);
+    }
 
-        if (!isWB && !isAN) return;
+    public void openAnvil(Player player, int page) {
+        List<AnvilRecipe> recipes = new ArrayList<AnvilRecipe>(storage.getAnvilRecipes());
+        Collections.sort(recipes, new Comparator<AnvilRecipe>() {
+            @Override
+            public int compare(AnvilRecipe first, AnvilRecipe second) {
+                return first.id.compareTo(second.id);
+            }
+        });
 
-        int raw = e.getRawSlot();
-        ItemStack it = e.getCurrentItem();
-        String nav = null;
-        if (it != null) {
-            ItemMeta im = it.getItemMeta();
-            if (im != null) nav = im.getPersistentDataContainer().get(NAV, PersistentDataType.STRING);
-        }
-        if (nav == null) {
-            if (raw == SLOT_PREV) nav = "prev";
-            else if (raw == SLOT_NEXT) nav = "next";
-            else if (raw == SLOT_CLOSE) nav = "close";
-        }
-        if (nav != null) {
-            int cur = pages.getOrDefault(p.getUniqueId(), 1);
-            if (nav.equals("prev")) {
-                cur = Math.max(1, cur - 1);
-                if (isWB) openWorkbench(p, cur); else openAnvil(p, cur);
-                return;
-            }
-            if (nav.equals("next")) {
-                cur = cur + 1;
-                if (isWB) openWorkbench(p, cur); else openAnvil(p, cur);
-                return;
-            }
-            if (nav.equals("close")) {
-                p.closeInventory();
-                return;
-            }
-        }
+        int safePage = normalizePage(page, recipes.size());
+        pages.put(player.getUniqueId(), safePage);
+        Map<Integer, EntryRef> refs = new HashMap<Integer, EntryRef>();
+        entries.put(player.getUniqueId(), refs);
 
-        if (it == null || it.getType() == Material.AIR) return;
-        ItemMeta im = it.getItemMeta();
-        if (im == null) return;
-        String id = im.getPersistentDataContainer().get(RID, PersistentDataType.STRING);
-        String tp = im.getPersistentDataContainer().get(TYP, PersistentDataType.STRING);
-        if (id == null || tp == null) return;
-
-        if (tp.equals("wb")) {
-            if (e.isLeftClick()) {
-                if (!can(p, "refontcrafts.edit.workbench")) {
-                    p.sendMessage(plugin.prefix() + plugin.msg("no_permission"));
-                    return;
-                }
-                WorkbenchRecipe r = storage.getWorkbenchRecipe(id);
-                if (r == null) return;
-                plugin.recipeMenu().openEditorForEdit(p, id, r.ingredients, r.result, r.shaped);
-            } else if (e.isRightClick()) {
-                if (!can(p, "refontcrafts.delete.workbench")) {
-                    p.sendMessage(plugin.prefix() + plugin.msg("no_permission"));
-                    return;
-                }
-                WorkbenchRecipe r = storage.getWorkbenchRecipe(id);
-                openConfirm(p, "wb", id, r != null ? r.result : null);
+        Inventory inventory = createBase(plugin.titleBrowseAnvil());
+        int from = (safePage - 1) * VIEW_SLOTS.length;
+        int to = Math.min(from + VIEW_SLOTS.length, recipes.size());
+        int shown = 0;
+        for (int i = from; i < to; i++) {
+            AnvilRecipe recipe = recipes.get(i);
+            ItemStack icon = recipe.result.clone();
+            ItemMeta meta = icon.getItemMeta();
+            if (meta != null) {
+                List<String> lore = new ArrayList<String>();
+                lore.add(plugin.tr("gui.browser.anvil.type", "&8Type: &fAnvil"));
+                lore.add(plugin.tr("gui.browser.anvil.id", "&8ID: &7%id%", "id", recipe.id));
+                lore.add(plugin.tr("gui.browser.anvil.cost", "&8Cost: &f%cost%", "cost", String.valueOf(recipe.cost)));
+                lore.add(" ");
+                lore.add(plugin.tr("gui.browser.anvil.left", "&7Left input: &f%item%", "item", recipe.left.getType().name()));
+                lore.add(plugin.tr("gui.browser.anvil.right", "&7Right input: &f%item%", "item", recipe.right.getType().name()));
+                lore.add(" ");
+                lore.add(plugin.tr("gui.crafts.preview", "&7Left click to preview"));
+                lore.add(plugin.tr("gui.browser.anvil.edit", "&7Shift+left click: &aedit"));
+                lore.add(plugin.tr("gui.browser.anvil.delete", "&7Right click: &cdelete"));
+                meta.setLore(ItemUtil.colorLines(lore));
+                icon.setItemMeta(meta);
             }
-            return;
+            int slot = VIEW_SLOTS[shown++];
+            inventory.setItem(slot, icon);
+            refs.put(slot, new EntryRef("anv", recipe.id));
         }
-        if (tp.equals("anv")) {
-            if (e.isLeftClick()) {
-                if (!can(p, "refontcrafts.edit.anvil")) {
-                    p.sendMessage(plugin.prefix() + plugin.msg("no_permission"));
-                    return;
-                }
-                AnvilRecipe r = storage.getAnvilRecipe(id);
-                if (r == null) return;
-                plugin.anvilMenu().openEditorForEdit(p, r.left, r.right, r.result, r.cost, id);
-            } else if (e.isRightClick()) {
-                if (!can(p, "refontcrafts.delete.anvil")) {
-                    p.sendMessage(plugin.prefix() + plugin.msg("no_permission"));
-                    return;
-                }
-                AnvilRecipe r = storage.getAnvilRecipe(id);
-                openConfirm(p, "anv", id, r != null ? r.result : null);
-            }
-        }
+        player.openInventory(inventory);
     }
 
     @EventHandler
-    public void onDrag(InventoryDragEvent e) {
-        String title = e.getView().getTitle();
-        boolean isWB = Text.plain(title).equals(Text.plain(plugin.titleBrowseWorkbench()));
-        boolean isAN = Text.plain(title).equals(Text.plain(plugin.titleBrowseAnvil()));
-        boolean isCF = Text.plain(title).equals(Text.plain(confirmTitle()));
-        if (!isWB && !isAN && !isCF) return;
-        int top = e.getView().getTopInventory().getSize();
-        for (Integer s : e.getRawSlots()) {
-            if (s < top) { e.setCancelled(true); return; }
+    public void onClick(InventoryClickEvent event) {
+        if (!(event.getWhoClicked() instanceof Player)) return;
+        String title = event.getView().getTitle();
+        boolean workbench = Text.plain(title).equals(Text.plain(plugin.titleBrowseWorkbench()));
+        boolean anvil = Text.plain(title).equals(Text.plain(plugin.titleBrowseAnvil()));
+        if (!workbench && !anvil) return;
+        if (event.getRawSlot() < 0 || event.getRawSlot() >= event.getView().getTopInventory().getSize()) return;
+
+        event.setCancelled(true);
+        Player player = (Player) event.getWhoClicked();
+        int slot = event.getRawSlot();
+        int page = page(player);
+
+        if (slot == PREVIOUS_SLOT) {
+            final int targetPage = page - 1;
+            runNextTick(player, new Runnable() {
+                @Override
+                public void run() {
+                    if (workbench) openWorkbench(player, targetPage);
+                    else openAnvil(player, targetPage);
+                }
+            });
+            return;
+        }
+        if (slot == NEXT_SLOT) {
+            final int targetPage = page + 1;
+            runNextTick(player, new Runnable() {
+                @Override
+                public void run() {
+                    if (workbench) openWorkbench(player, targetPage);
+                    else openAnvil(player, targetPage);
+                }
+            });
+            return;
+        }
+        if (slot == CLOSE_SLOT) {
+            runNextTick(player, new Runnable() {
+                @Override
+                public void run() {
+                    player.closeInventory();
+                }
+            });
+            return;
+        }
+
+        Map<Integer, EntryRef> refs = entries.get(player.getUniqueId());
+        EntryRef ref = refs == null ? null : refs.get(slot);
+        if (ref == null) return;
+
+        if ("wb".equals(ref.type)) {
+            WorkbenchRecipe recipe = storage.getWorkbenchRecipe(ref.id);
+            if (recipe == null) return;
+            if (!player.hasPermission("refontcrafts.view")) {
+                player.sendMessage(plugin.msg("no_permission"));
+                return;
+            }
+            if (event.isLeftClick()) {
+                if (canEditWorkbench(player)) {
+                    runNextTick(player, new Runnable() {
+                        @Override
+                        public void run() {
+                            plugin.recipeMenu().openEditorForEdit(
+                                    player, recipe.id, recipe.ingredients, recipe.result, recipe.shaped);
+                        }
+                    });
+                } else {
+                    runNextTick(player, new Runnable() {
+                        @Override
+                        public void run() {
+                            plugin.craftMenu().openWorkbenchPreview(player, recipe);
+                        }
+                    });
+                }
+            } else if (event.isRightClick()) {
+                if (!player.hasPermission("refontcrafts.delete.workbench")
+                        && !player.hasPermission("refontcrafts.recipe")) {
+                    player.sendMessage(plugin.msg("no_permission"));
+                    return;
+                }
+                storage.deleteWorkbenchRecipe(recipe.id);
+                runNextTick(player, new Runnable() {
+                    @Override
+                    public void run() {
+                        openWorkbench(player, page);
+                    }
+                });
+            }
+            return;
+        }
+
+        AnvilRecipe recipe = storage.getAnvilRecipe(ref.id);
+        if (recipe == null) return;
+        if (!player.hasPermission("refontcrafts.view")) {
+            player.sendMessage(plugin.msg("no_permission"));
+            return;
+        }
+        if (event.isLeftClick()) {
+            if (event.isShiftClick() && (player.hasPermission("refontcrafts.edit.anvil")
+                    || player.hasPermission("refontcrafts.anvil"))) {
+                runNextTick(player, new Runnable() {
+                    @Override
+                    public void run() {
+                        plugin.anvilMenu().openEditorForEdit(
+                                player, recipe.left, recipe.right, recipe.result, recipe.cost, recipe.id);
+                    }
+                });
+            } else {
+                runNextTick(player, new Runnable() {
+                    @Override
+                    public void run() {
+                        plugin.craftMenu().openAnvilPreview(player, recipe);
+                    }
+                });
+            }
+        } else if (event.isRightClick()) {
+            if (!player.hasPermission("refontcrafts.delete.anvil")
+                    && !player.hasPermission("refontcrafts.anvil")) {
+                player.sendMessage(plugin.msg("no_permission"));
+                return;
+            }
+            storage.deleteAnvilRecipe(recipe.id);
+            runNextTick(player, new Runnable() {
+                @Override
+                public void run() {
+                    openAnvil(player, page);
+                }
+            });
         }
     }
 
+    private void runNextTick(final Player player, final Runnable action) {
+        Bukkit.getScheduler().runTask(plugin, new Runnable() {
+            @Override
+            public void run() {
+                if (player.isOnline()) action.run();
+            }
+        });
+    }
+
     @EventHandler
-    public void onClose(InventoryCloseEvent e) {
-        String title = e.getView().getTitle();
-        boolean isWB = Text.plain(title).equals(Text.plain(plugin.titleBrowseWorkbench()));
-        boolean isAN = Text.plain(title).equals(Text.plain(plugin.titleBrowseAnvil()));
-        if (!isWB && !isAN) return;
-        if (keepStateOnClose.remove(e.getPlayer().getUniqueId())) return;
-        pages.remove(e.getPlayer().getUniqueId());
-        lastType.remove(e.getPlayer().getUniqueId());
+    public void onClose(InventoryCloseEvent event) {
+        String title = event.getView().getTitle();
+        if (!Text.plain(title).equals(Text.plain(plugin.titleBrowseWorkbench()))
+                && !Text.plain(title).equals(Text.plain(plugin.titleBrowseAnvil()))) return;
+        UUID id = event.getPlayer().getUniqueId();
+        pages.remove(id);
+        entries.remove(id);
     }
 
-    private boolean can(Player p, String permission) {
-        return plugin.hasAccess(p, permission);
+    private Inventory createBase(String title) {
+        Inventory inventory = Bukkit.createInventory(null, 54, title);
+        ItemStack filler = ItemUtil.named(Compat.blackPane(), " ");
+        for (int i = 0; i < inventory.getSize(); i++) inventory.setItem(i, filler.clone());
+        inventory.setItem(PREVIOUS_SLOT, ItemUtil.named(
+                Material.ARROW,
+                plugin.tr("gui.nav.prev.name", "&e← Previous"),
+                plugin.tr("gui.nav.prev.lore", "&7Go to the previous page")));
+        inventory.setItem(CLOSE_SLOT, ItemUtil.named(
+                Material.BARRIER,
+                plugin.tr("gui.nav.close.name", "&cClose"),
+                plugin.tr("gui.nav.close.lore", "&7Close this menu")));
+        inventory.setItem(NEXT_SLOT, ItemUtil.named(
+                Material.ARROW,
+                plugin.tr("gui.nav.next.name", "&eNext →"),
+                plugin.tr("gui.nav.next.lore", "&7Go to the next page")));
+        return inventory;
     }
 
-    private void reopenAfterDelete(Player p, boolean ok) {
-        if (!ok) p.sendMessage(plugin.prefix() + Text.color("&cDelete failed."));
-        String last = lastType.getOrDefault(p.getUniqueId(), "wb");
-        int pg = pages.getOrDefault(p.getUniqueId(), 1);
-        if (last.equals("wb")) openWorkbench(p, pg); else openAnvil(p, pg);
+    private int normalizePage(int requested, int size) {
+        int pagesCount = Math.max(1, (size + VIEW_SLOTS.length - 1) / VIEW_SLOTS.length);
+        return Math.max(1, Math.min(requested, pagesCount));
     }
 
-    private void fillFrame(Inventory inv) {
-        for (int i = 0; i < inv.getSize(); i++) inv.setItem(i, ItemUtil.named(Material.BLACK_STAINED_GLASS_PANE, " "));
+    private int page(Player player) {
+        Integer value = pages.get(player.getUniqueId());
+        return value == null ? 1 : value.intValue();
     }
 
-    private ItemStack navItem(String action) {
-        ItemStack it = action.equals("prev") ? ItemUtil.named(Material.ARROW, Text.color("&e← Предыдущая")) : ItemUtil.named(Material.ARROW, Text.color("&eСледующая →"));
-        ItemMeta im = it.getItemMeta();
-        im.getPersistentDataContainer().set(NAV, PersistentDataType.STRING, action);
-        it.setItemMeta(im);
-        return it;
+    private boolean canEditWorkbench(Player player) {
+        return player.hasPermission("refontcrafts.edit.workbench")
+                || player.hasPermission("refontcrafts.recipe");
     }
 
-    private ItemStack closeItem() {
-        ItemStack it = ItemUtil.named(Material.BARRIER, Text.color("&cЗакрыть"));
-        ItemMeta im = it.getItemMeta();
-        im.getPersistentDataContainer().set(NAV, PersistentDataType.STRING, "close");
-        it.setItemMeta(im);
-        return it;
+    private static final class EntryRef {
+        private final String type;
+        private final String id;
+
+        private EntryRef(String type, String id) {
+            this.type = type;
+            this.id = id;
+        }
     }
 }

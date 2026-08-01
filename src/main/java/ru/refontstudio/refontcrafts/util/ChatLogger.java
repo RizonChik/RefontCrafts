@@ -20,10 +20,10 @@ public class ChatLogger extends Handler {
         if (r.getThrown() != null) {
             Throwable t = r.getThrown();
             int lines = 0;
-            ChatLog.send("&c" + t.toString());
+            ChatLog.send(RefontCrafts.getInstance().prefix() + "&c" + t.toString());
             for (StackTraceElement el : t.getStackTrace()) {
                 if (lines >= 8) break;
-                ChatLog.send("&7  at " + el.toString());
+                ChatLog.send(RefontCrafts.getInstance().prefix() + "&7  at " + el.toString());
                 lines++;
             }
         }

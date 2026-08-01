@@ -1,113 +1,73 @@
 # ========== RefontCrafts ==========
-# Автор: https://t.me/orythix
-# Это конфиг плагина, Здесь можно настроить внешний вид,
-# базу данных, и поведение рецептов (верстак/наковальня).
+# Author: https://t.me/orythix
+# This is the plugin config. Here you can adjust the appearance,
+# the database, and recipe behavior (workbench/anvil).
 
 settings:
-  # Префикс плагина в чат-сообщениях
   prefix: "§x§2§5§A§F§F§1R§x§2§2§A§8§F§2e§x§1§E§A§1§F§4f§x§1§B§9§B§F§5o§x§1§8§9§4§F§6n§x§1§4§8§D§F§7t§x§1§1§8§6§F§9C§x§0§D§7§F§F§Ar§x§0§A§7§8§F§Ba§x§0§7§7§2§F§Cf§x§0§3§6§B§F§Et§x§0§0§6§4§F§Fs &8»&7 "
+  # Interface language: en, ru, vi, zh_cn
+  language: "en"
 
   titles:
-    # Заголовок GUI для рецептов верстака
-    recipe: "§x§2§5§A§F§F§1С§x§2§3§A§A§F§2о§x§2§0§A§5§F§3з§x§1§E§A§0§F§4д§x§1§B§9§B§F§5а§x§1§9§9§6§F§6н§x§1§6§9§1§F§7и§x§1§4§8§C§F§8е §x§0§F§8§2§F§9р§x§0§C§7§D§F§Aе§x§0§A§7§8§F§Bц§x§0§7§7§3§F§Cе§x§0§5§6§E§F§Dп§x§0§2§6§9§F§Eт§x§0§0§6§4§F§Fа"
-    # Заголовок GUI для рецептов наковальни
-    anvil: "§x§2§5§A§F§F§1Р§x§2§3§A§B§F§2е§x§2§1§A§7§F§3ц§x§1§F§A§3§F§3е§x§1§D§9§E§F§4п§x§1§B§9§A§F§5т §x§1§7§9§2§F§6в §x§1§3§8§A§F§8н§x§1§0§8§5§F§9а§x§0§E§8§1§F§Aк§x§0§C§7§D§F§Aо§x§0§A§7§9§F§Bв§x§0§8§7§5§F§Cа§x§0§6§7§1§F§Dл§x§0§4§6§C§F§Dь§x§0§2§6§8§F§Eн§x§0§0§6§4§F§Fю"
-    # Заголовок браузера рецептов верстака (меню просмотра)
-    browser_workbench: "§bРецепты Верстака"
-    # Заголовок браузера рецептов наковальни (меню просмотра)
-    browser_anvil: "§dРецепты Наковальни"
+    # GUI title for workbench recipes
+    recipe: "§bWorkbench Recipes"
+    # GUI title for anvil recipes
+    anvil: "§dAnvil Recipes"
+    # Browser title for workbench recipes (view menu)
+    browser_workbench: "§bWorkbench Recipes"
+    # Browser title for anvil recipes (view menu)
+    browser_anvil: "§dAnvil Recipes"
 
-  # Точное сопоставление предметов:
-  # true  — сравниваем isSimilar (учитываем имя, лор, чары, NBT и т.д.)
-  # false — сравниваем материал, название, лор и стабильные признаки без уникальных служебных NBT.
+  # Exact item matching:
+  # true  - compare isSimilar (name, lore, enchants, NBT, etc.)
+  # false - compare stable metadata but ignore unique technical NBT.
   exact_meta_match: false
 
-  # Верстаки: строго соблюдать выкладку 3×3 (рецепт сработает только при точном расположении).
+  # Workbenches: strict 3x3 layout (the recipe works only with exact placement).
   workbench_strict_shape: true
-  # 126 нормально показывается на клиенте. Больше 126 результат может пропадать.
+
+  # Limit of the visible craft preview/result stack. 126 keeps the client display working.
   workbench_preview_limit: 126
-  # Разрешать зеркалирование формы (отражение по горизонтали).
-  # Если включить, выкладка ABC будет распознаваться и как CBA в той же строке.
+
+  # Allow horizontal mirror of the pattern. Default: no.
+  # If enabled, ABC will also match as CBA on the same row.
   workbench_allow_mirror: false
 
-  # Возврат вещей игроку при закрытии GUI без сохранения
+  # Return items to player when closing the GUI without saving
   take_back_on_close: true
 
-  # Стоимость по умолчанию для новых рецептов наковальни (в уровнях)
+  # Default cost for new anvil recipes (in levels)
   default_anvil_cost: 0
 
-  # Режим наковальни:
-  # auto  — если установлен AdvancedEnchantments, применяется режим “книга по клику”, иначе обычная наковальня
-  # anvil — всегда через наковальню
-  # click — всегда по клику в инвентаре
-  anvil_mode: anvil
+  # Anvil mode:
+  # auto  - if AdvancedEnchantments is installed, use click-book mode; otherwise normal anvil
+  # anvil - always use the anvil
+  # click - always use inventory clicking
+  anvil_mode: auto
 
-  # Доп. настройки логики наковальни
-  anvil:
-    # Строго соблюдать расположение предметов: левый слот и правый слот не взаимозаменяемы.
-    strict_order: true
-    # В креативе игнорировать требование по уровням (не списывать EXP)
-    creative_ignores_xp: true
-    # Операторы игнорируют EXP?
-    # false — у операторов тоже должно хватать уровней и строка «Требуемый уровень: N» видна
-    ops_ignore_xp: true
-    # Предпросмотр результата в наковальне:
-    # false — показывать 1 предмет результата (как у ванильных комбинаций)
-    # true  — показывать пачку до размера стака
-    stack_preview_result: false
+  database:
+    # Database backend: sqlite is local .db file; mysql is external MySQL/MariaDB server.
+    # Recipes and items are stored with metadata and can be moved between servers.
+    type: sqlite
 
-  # Звуки (имена из org.bukkit.Sound)
-  sounds:
-    # Успешное получение результата с верстака
-    workbench_success:
-      name: UI_STONECUTTER_TAKE_RESULT
-      volume: 1.0
-      pitch: 1.05
-    # Успешное получение результата в наковальне
-    anvil_success:
-      name: BLOCK_ANVIL_USE
-      volume: 1.0
-      pitch: 1.0
+    sqlite:
+      # Database file name in the plugin folder
+      file: data.db
 
-database:
-  # База данных: sqlite — локальный файл .db; mysql — внешний сервер MySQL/MariaDB.
-  # Рецепты и предметы сохраняются целиком (с метаданными) — можно переносить между серверами.
-  type: sqlite
+    mysql:
+      # MySQL host (host:port is allowed)
+      host: 127.0.0.1
+      # MySQL port
+      port: 3306
+      # Database name
+      database: refontcrafts
+      # Database user and password
+      user: root
+      password: ''
+      # Use SSL
+      use_ssl: false
+      # Additional connection parameters (optional)
+      params: "useUnicode=true&characterEncoding=utf8"
 
-  sqlite:
-    # Имя файла базы данных в папке плагина
-    file: data.db
-
-  mysql:
-    # Хост MySQL (можно host:port)
-    host: 127.0.0.1
-    # Порт MySQL
-    port: 3306
-    # Имя базы
-    database: refontcrafts
-    # Пользователь и пароль
-    user: root
-    password: ''
-    # Нужен ли SSL
-    use_ssl: false
-    # Доп. параметры строки подключения (опционально)
-    params: 'useUnicode=true&characterEncoding=utf8'
-
-  # Если БД пустая — импортировать примеры из секции recipes (ниже).
-  # Можно оставить true — если примеров нет, ничего не импортируется.
-  bootstrap_from_config: true
-
-  # Сохранять новые рецепты асинхронно (меньше лагов).
-  async_save: true
-
-messages:
-  only_player: "&cТолько игрок."
-  no_permission: "&cНедостаточно прав."
-  recipe_fill_both: "&cЗаполни ингредиенты и результат."
-  anvil_fill_both: "&cЗаполни оба входа и результат."
-  saved_recipe: "&aРецепт сохранён: &f%id%"
-  saved_anvil: "&aСохранён рецепт наковальни: &f%id% &7(стоимость: &f%cost%&7)"
-  not_enough_levels: "&cНедостаточно уровней: нужно &f%cost%"
-  no_inventory_space: "&cНет места в инвентаре."
-  reloaded: "&aКонфиг и рецепты перезагружены."
-  editor_preview_hint: "§7Это предпросмотр рецепта. §eЗабирать предметы нельзя§7. Нажми §eОчистить§7, чтобы пересобрать, или положи свой предмет в слот для замены."
+    # Save new recipes asynchronously (less lag).
+    async_save: true

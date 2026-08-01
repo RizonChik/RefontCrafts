@@ -1,0 +1,139 @@
+titles:
+  main: "RefontCrafts"
+  recipe: "配方编辑器"
+  anvil: "铁砧编辑器"
+  browser_workbench: "工作台配方"
+  browser_anvil: "铁砧配方"
+  crafts: "全部配方"
+  craft_preview: "配方预览"
+  confirm_delete: "确认删除"
+
+messages:
+  only_player: "&c只有玩家才能使用这个命令。"
+  no_permission: "&c你没有权限。"
+  recipe_fill_both: "&c请放入材料和结果。"
+  anvil_fill_both: "&c请放入两个输入和结果。"
+  saved_recipe: "&a已保存配方：&f%id%"
+  saved_anvil: "&a已保存铁砧配方：&f%id% &7(消耗：&f%cost%&7)"
+  recipe_update_failed: "&c无法替换旧配方，修改未保存。"
+  not_enough_levels: "&c等级不足：需要 &f%cost%"
+  no_inventory_space: "&c背包空间不足。"
+  reloaded: "&a配置和配方已重新加载。"
+  loaded_recipes: "&a已加载配方：&f%shapeless% &7| &a铁砧：&f%anvil%"
+  editor_preview_hint: "&7这是预览。把物品放到槽位里即可替换。"
+
+gui:
+  main:
+    recipe:
+      name: "&b工作台编辑器"
+      lore: "&7打开工作台配方编辑器"
+    anvil:
+      name: "&d铁砧编辑器"
+      lore: "&7打开铁砧配方编辑器"
+    browse:
+      name: "&e浏览配方"
+      lore: "&7查看所有自定义配方"
+    crafts:
+      name: "&a全部配方"
+      lore: "&7显示所有配方和当前可制作数量"
+    close:
+      name: "&c关闭"
+      lore: "&7关闭这个菜单"
+  editor:
+    save:
+      name: "&a保存"
+      lore: "&7保存配方"
+      edit_lore: "&7重新保存配方"
+    clear:
+      name: "&e清空"
+      lore: "&7移除所有物品"
+    exit:
+      name: "&c退出"
+      lore: "&7归还物品并关闭"
+    help:
+      name: "&bShift 操作"
+      inputs: "&7Shift+左键：放入输入槽"
+      result: "&7Shift+右键或对目标槽按 Shift：放入结果"
+      number: "&7悬停槽位并按 1-9：与快捷栏交换"
+      remove: "&7编辑器内 Shift：归还/移除"
+  anvil:
+    minus:
+      name: "&c- 费用"
+      lore: "&7减少 1"
+    plus:
+      name: "&a+ 费用"
+      lore: "&7增加 1"
+    cost:
+      name: "&e费用：&f%cost%"
+      lore: "&7制作时消耗等级"
+    save:
+      lore: "&7保存铁砧配方"
+      edit_lore: "&7重新保存铁砧配方"
+  nav:
+    prev:
+      name: "&e← 上一页"
+      lore: "&7前往上一页"
+    next:
+      name: "&e下一页 →"
+      lore: "&7前往下一页"
+    close:
+      name: "&c关闭"
+      lore: "&7关闭这个菜单"
+    back:
+      name: "&e← 返回"
+      lore: "&7回到列表"
+  browser:
+    workbench:
+      type: "&8类型：&f工作台"
+      shape:
+        text: "&8形状：%shape%"
+        shaped: "&a有形状"
+        shapeless: "&e无形状"
+      id: "&8ID：&7%id%"
+      edit: "&7左键：&a编辑"
+      delete: "&7右键：&c删除"
+    anvil:
+      type: "&8类型：&f铁砧"
+      id: "&8ID：&7%id%"
+      cost: "&8费用：&f%cost%"
+      left: "&7左侧输入：&f%item%"
+      right: "&7右侧输入：&f%item%"
+      edit: "&7左键：&a编辑"
+      delete: "&7右键：&c删除"
+  crafts:
+    summary:
+      name: "&b全部配方"
+      page: "&7页码：&f%page%&7/&f%pages%"
+      total: "&7显示配方：&f%count%"
+      order: "&7顺序：&f先显示铁砧，后显示工作台"
+    empty:
+      name: "&c还没有自定义配方"
+      lore: "&7请先创建工作台或铁砧配方。"
+    type:
+      workbench: "&8类型：&f工作台"
+      anvil: "&8类型：&f铁砧"
+    available: "&8当前可做：&f%count%"
+    shape:
+      text: "&8形状：&f%shape%"
+      shaped: "&a有形状"
+      shapeless: "&e无形状"
+    cost: "&8费用：&f%cost%"
+    how: "&8获取方式：&f%ingredients%"
+    id: "&8ID：&7%id%"
+    preview: "&7左键查看预览"
+    ingredients:
+      empty: "&7无"
+  preview:
+    info:
+      name: "&b配方预览"
+    workbench:
+      type: "&8类型：&f工作台"
+      form: "&8形状：&f%shape%"
+      available: "&8当前可做：&f%count%"
+      result: "&8每次结果：&f%amount%"
+      id: "&8ID：&7%id%"
+    anvil:
+      type: "&8类型：&f铁砧"
+      available: "&8当前可做：&f%count%"
+      cost: "&8费用：&f%cost%"
+      id: "&8ID：&7%id%"

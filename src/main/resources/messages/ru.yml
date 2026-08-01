@@ -1,0 +1,139 @@
+titles:
+  main: "RefontCrafts"
+  recipe: "Редактор рецепта"
+  anvil: "Редактор наковальни"
+  browser_workbench: "Рецепты верстака"
+  browser_anvil: "Рецепты наковальни"
+  crafts: "Все крафты"
+  craft_preview: "Просмотр крафта"
+  confirm_delete: "Подтверждение удаления"
+
+messages:
+  only_player: "&cТолько игрок может использовать эту команду."
+  no_permission: "&cУ тебя нет прав."
+  recipe_fill_both: "&cЗаполни и ингредиенты, и результат."
+  anvil_fill_both: "&cЗаполни оба входа и результат."
+  saved_recipe: "&aРецепт сохранён: &f%id%"
+  saved_anvil: "&aСохранён рецепт наковальни: &f%id% &7(стоимость: &f%cost%&7)"
+  recipe_update_failed: "&cНе удалось заменить старый рецепт. Изменения не сохранены."
+  not_enough_levels: "&cНедостаточно уровней: нужно &f%cost%"
+  no_inventory_space: "&cНет места в инвентаре."
+  reloaded: "&aКонфиг и рецепты перезагружены."
+  loaded_recipes: "&aЗагружено рецептов: &f%shapeless% &7| &aНаковальня: &f%anvil%"
+  editor_preview_hint: "&7Это предпросмотр. Положи предмет в слот, чтобы заменить его."
+
+gui:
+  main:
+    recipe:
+      name: "&bРедактор верстака"
+      lore: "&7Открыть редактор рецептов верстака"
+    anvil:
+      name: "&dРедактор наковальни"
+      lore: "&7Открыть редактор рецептов наковальни"
+    browse:
+      name: "&eПросмотр рецептов"
+      lore: "&7Показать все кастомные рецепты"
+    crafts:
+      name: "&aВсе крафты"
+      lore: "&7Показать все рецепты и доступное количество"
+    close:
+      name: "&cЗакрыть"
+      lore: "&7Закрыть меню"
+  editor:
+    save:
+      name: "&aСохранить"
+      lore: "&7Сохранить рецепт"
+      edit_lore: "&7Пересохранить рецепт"
+    clear:
+      name: "&eОчистить"
+      lore: "&7Убрать все предметы"
+    exit:
+      name: "&cВыход"
+      lore: "&7Вернуть вещи и закрыть"
+    help:
+      name: "&bУправление Shift"
+      inputs: "&7Shift+ЛКМ: положить во входные слоты"
+      result: "&7Shift+ПКМ или Shift по нужному слоту: результат"
+      number: "&7Наведи на слот и нажми 1-9: обмен с хотбаром"
+      remove: "&7Shift внутри редактора: вернуть/убрать"
+  anvil:
+    minus:
+      name: "&c- Стоимость"
+      lore: "&7Уменьшить на 1"
+    plus:
+      name: "&a+ Стоимость"
+      lore: "&7Увеличить на 1"
+    cost:
+      name: "&eСтоимость: &f%cost%"
+      lore: "&7Уровни при крафте"
+    save:
+      lore: "&7Сохранить рецепт наковальни"
+      edit_lore: "&7Пересохранить рецепт наковальни"
+  nav:
+    prev:
+      name: "&e← Предыдущая"
+      lore: "&7На предыдущую страницу"
+    next:
+      name: "&eСледующая →"
+      lore: "&7На следующую страницу"
+    close:
+      name: "&cЗакрыть"
+      lore: "&7Закрыть меню"
+    back:
+      name: "&e← Назад"
+      lore: "&7Вернуться к списку"
+  browser:
+    workbench:
+      type: "&8Тип: &fВерстак"
+      shape:
+        text: "&8Форма: %shape%"
+        shaped: "&aСтрогая"
+        shapeless: "&eБез формы"
+      id: "&8ID: &7%id%"
+      edit: "&7ЛКМ: &aредактировать"
+      delete: "&7ПКМ: &cудалить"
+    anvil:
+      type: "&8Тип: &fНаковальня"
+      id: "&8ID: &7%id%"
+      cost: "&8Стоимость: &f%cost%"
+      left: "&7Левый вход: &f%item%"
+      right: "&7Правый вход: &f%item%"
+      edit: "&7ЛКМ: &aредактировать"
+      delete: "&7ПКМ: &cудалить"
+  crafts:
+    summary:
+      name: "&bВсе крафты"
+      page: "&7Страница: &f%page%&7/&f%pages%"
+      total: "&7Показано крафтов: &f%count%"
+      order: "&7Порядок: &fсначала наковальня, затем верстак"
+    empty:
+      name: "&cНет созданных крафтов"
+      lore: "&7Сначала создай рецепт верстака или наковальни."
+    type:
+      workbench: "&8Тип: &fВерстак"
+      anvil: "&8Тип: &fНаковальня"
+    available: "&8Доступно сейчас: &f%count%"
+    shape:
+      text: "&8Форма: &f%shape%"
+      shaped: "&aСтрогая"
+      shapeless: "&eБез формы"
+    cost: "&8Стоимость: &f%cost%"
+    how: "&8Как получить: &f%ingredients%"
+    id: "&8ID: &7%id%"
+    preview: "&7ЛКМ: посмотреть"
+    ingredients:
+      empty: "&7Ничего"
+  preview:
+    info:
+      name: "&bПредпросмотр крафта"
+    workbench:
+      type: "&8Тип: &fВерстак"
+      form: "&8Форма: &f%shape%"
+      available: "&8Доступно сейчас: &f%count%"
+      result: "&8Результат за 1 крафт: &f%amount%"
+      id: "&8ID: &7%id%"
+    anvil:
+      type: "&8Тип: &fНаковальня"
+      available: "&8Доступно сейчас: &f%count%"
+      cost: "&8Стоимость: &f%cost%"
+      id: "&8ID: &7%id%"

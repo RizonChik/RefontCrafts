@@ -1,0 +1,139 @@
+titles:
+  main: "RefontCrafts"
+  recipe: "Trình sửa công thức"
+  anvil: "Trình sửa đe"
+  browser_workbench: "Công thức bàn chế tạo"
+  browser_anvil: "Công thức đe"
+  crafts: "Tất cả công thức"
+  craft_preview: "Xem trước công thức"
+  confirm_delete: "Xác nhận xóa"
+
+messages:
+  only_player: "&cChỉ người chơi mới dùng được lệnh này."
+  no_permission: "&cBạn không có quyền."
+  recipe_fill_both: "&cHãy điền đủ nguyên liệu và kết quả."
+  anvil_fill_both: "&cHãy điền đủ hai đầu vào và kết quả."
+  saved_recipe: "&aĐã lưu công thức: &f%id%"
+  saved_anvil: "&aĐã lưu công thức đe: &f%id% &7(chi phí: &f%cost%&7)"
+  recipe_update_failed: "&cKhông thể thay thế công thức cũ. Thay đổi chưa được lưu."
+  not_enough_levels: "&cKhông đủ cấp: cần &f%cost%"
+  no_inventory_space: "&cKhông đủ chỗ trong túi đồ."
+  reloaded: "&aĐã nạp lại cấu hình và công thức."
+  loaded_recipes: "&aĐã tải công thức: &f%shapeless% &7| &aĐe: &f%anvil%"
+  editor_preview_hint: "&7Đây chỉ là bản xem trước. Thả vật phẩm vào ô để thay thế."
+
+gui:
+  main:
+    recipe:
+      name: "&bTrình sửa bàn chế tạo"
+      lore: "&7Mở trình sửa công thức bàn chế tạo"
+    anvil:
+      name: "&dTrình sửa đe"
+      lore: "&7Mở trình sửa công thức đe"
+    browse:
+      name: "&eXem công thức"
+      lore: "&7Xem toàn bộ công thức tuỳ chỉnh"
+    crafts:
+      name: "&aTất cả công thức"
+      lore: "&7Hiển thị mọi công thức và số lượng có thể làm"
+    close:
+      name: "&cĐóng"
+      lore: "&7Đóng menu này"
+  editor:
+    save:
+      name: "&aLưu"
+      lore: "&7Lưu công thức"
+      edit_lore: "&7Lưu đè công thức"
+    clear:
+      name: "&eXoá"
+      lore: "&7Xoá hết vật phẩm"
+    exit:
+      name: "&cThoát"
+      lore: "&7Trả vật phẩm và đóng"
+    help:
+      name: "&bĐiều khiển Shift"
+      inputs: "&7Shift+chuột trái: chuyển vào ô nguyên liệu"
+      result: "&7Shift+chuột phải hoặc Shift vào ô đích: kết quả"
+      number: "&7Di chuột vào ô và nhấn 1-9: đổi với thanh nhanh"
+      remove: "&7Shift trong trình sửa: trả lại/xoá"
+  anvil:
+    minus:
+      name: "&c- Chi phí"
+      lore: "&7Giảm 1"
+    plus:
+      name: "&a+ Chi phí"
+      lore: "&7Tăng 1"
+    cost:
+      name: "&eChi phí: &f%cost%"
+      lore: "&7Số cấp bị trừ khi chế tạo"
+    save:
+      lore: "&7Lưu công thức đe"
+      edit_lore: "&7Lưu đè công thức đe"
+  nav:
+    prev:
+      name: "&e← Trước"
+      lore: "&7Trang trước"
+    next:
+      name: "&eTiếp →"
+      lore: "&7Trang tiếp theo"
+    close:
+      name: "&cĐóng"
+      lore: "&7Đóng menu này"
+    back:
+      name: "&e← Quay lại"
+      lore: "&7Về danh sách"
+  browser:
+    workbench:
+      type: "&8Loại: &fBàn chế tạo"
+      shape:
+        text: "&8Kiểu: %shape%"
+        shaped: "&aCó hình"
+        shapeless: "&eKhông hình"
+      id: "&8ID: &7%id%"
+      edit: "&7Chuột trái: &asửa"
+      delete: "&7Chuột phải: &cxoá"
+    anvil:
+      type: "&8Loại: &fĐe"
+      id: "&8ID: &7%id%"
+      cost: "&8Chi phí: &f%cost%"
+      left: "&7Đầu vào trái: &f%item%"
+      right: "&7Đầu vào phải: &f%item%"
+      edit: "&7Chuột trái: &asửa"
+      delete: "&7Chuột phải: &cxoá"
+  crafts:
+    summary:
+      name: "&bTất cả công thức"
+      page: "&7Trang: &f%page%&7/&f%pages%"
+      total: "&7Công thức hiển thị: &f%count%"
+      order: "&7Thứ tự: &fĐe trước, bàn chế tạo sau"
+    empty:
+      name: "&cChưa có công thức tùy chỉnh"
+      lore: "&7Hãy tạo công thức bàn chế tạo hoặc đe trước."
+    type:
+      workbench: "&8Loại: &fBàn chế tạo"
+      anvil: "&8Loại: &fĐe"
+    available: "&8Làm được ngay: &f%count%"
+    shape:
+      text: "&8Kiểu: &f%shape%"
+      shaped: "&aCó hình"
+      shapeless: "&eKhông hình"
+    cost: "&8Chi phí: &f%cost%"
+    how: "&8Cách lấy: &f%ingredients%"
+    id: "&8ID: &7%id%"
+    preview: "&7Chuột trái để xem trước"
+    ingredients:
+      empty: "&7Không có gì"
+  preview:
+    info:
+      name: "&bXem trước công thức"
+    workbench:
+      type: "&8Loại: &fBàn chế tạo"
+      form: "&8Kiểu: &f%shape%"
+      available: "&8Làm được ngay: &f%count%"
+      result: "&8Kết quả mỗi lần: &f%amount%"
+      id: "&8ID: &7%id%"
+    anvil:
+      type: "&8Loại: &fĐe"
+      available: "&8Làm được ngay: &f%count%"
+      cost: "&8Chi phí: &f%cost%"
+      id: "&8ID: &7%id%"

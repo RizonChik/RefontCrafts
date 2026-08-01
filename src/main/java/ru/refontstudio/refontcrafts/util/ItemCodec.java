@@ -35,12 +35,12 @@ public class ItemCodec {
         }
         Material m;
         try { m = Material.valueOf(name); } catch (IllegalArgumentException ex) { m = null; }
-        if (m == null || m.isAir()) return new ItemStack(Material.AIR);
+        if (Compat.isAir(m)) return new ItemStack(Material.AIR);
         return new ItemStack(m, amount);
     }
 
     public static String formatString(ItemStack it) {
-        if (it == null || it.getType().isAir()) return "AIR:1";
+        if (Compat.isAir(it)) return "AIR:1";
         try {
             ByteArrayOutputStream bos = new ByteArrayOutputStream();
             BukkitObjectOutputStream out = new BukkitObjectOutputStream(bos);
@@ -57,7 +57,7 @@ public class ItemCodec {
         int amount = Math.max(1, s.getInt("amount", 1));
         Material m;
         try { m = Material.valueOf(type.toUpperCase(Locale.ROOT)); } catch (IllegalArgumentException ex) { m = null; }
-        if (m == null || m.isAir()) return new ItemStack(Material.AIR);
+        if (Compat.isAir(m)) return new ItemStack(Material.AIR);
         return new ItemStack(m, amount);
     }
 }

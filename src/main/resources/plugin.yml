@@ -1,19 +1,21 @@
 name: RefontCrafts
-version: '1.0.8'
+version: '1.0.9'
 main: ru.refontstudio.refontcrafts.RefontCrafts
-api-version: '1.16'
+awareness:
+  - !@UTF8
 softdepend:
   - AdvancedEnchantments
-libraries:
-  - org.xerial:sqlite-jdbc:3.45.3.0
-  - mysql:mysql-connector-java:8.0.33
 commands:
   rcrafts:
-    aliases: [rc, refontcrafts]
+    aliases: [rc, refontcraft, refontcrafts]
     description: RefontCrafts commands
     permission: refontcrafts.use
+  crafts:
+    description: View all custom recipes and current availability
 permissions:
   refontcrafts.use:
+    default: true
+  refontcrafts.crafts:
     default: true
   refontcrafts.view:
     default: true
@@ -29,14 +31,19 @@ permissions:
     default: op
   refontcrafts.delete.anvil:
     default: op
-  refontcrafts.reload:
+  refontcrafts.recipe:
     default: op
-  refontcrafts.notify:
+  refontcrafts.anvil:
+    default: op
+  refontcrafts.browse:
+    default: true
+  refontcrafts.reload:
     default: op
   refontcrafts.admin:
     default: op
     children:
       refontcrafts.use: true
+      refontcrafts.crafts: true
       refontcrafts.view: true
       refontcrafts.create.workbench: true
       refontcrafts.create.anvil: true
@@ -44,5 +51,7 @@ permissions:
       refontcrafts.edit.anvil: true
       refontcrafts.delete.workbench: true
       refontcrafts.delete.anvil: true
+      refontcrafts.recipe: true
+      refontcrafts.anvil: true
+      refontcrafts.browse: true
       refontcrafts.reload: true
-      refontcrafts.notify: true

@@ -1,352 +1,231 @@
 package ru.refontstudio.refontcrafts.listeners;
 
-import org.bukkit.Bukkit;
-import org.bukkit.GameMode;
-import org.bukkit.Material;
-import org.bukkit.NamespacedKey;
-import org.bukkit.Sound;
-import org.bukkit.entity.HumanEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.event.inventory.InventoryOpenEvent;
 import org.bukkit.event.inventory.InventoryType;
-import org.bukkit.event.inventory.PrepareAnvilEvent;
 import org.bukkit.inventory.AnvilInventory;
-import org.bukkit.inventory.InventoryView;
+import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.persistence.PersistentDataType;
 import ru.refontstudio.refontcrafts.RefontCrafts;
 import ru.refontstudio.refontcrafts.storage.RecipeStorage;
 import ru.refontstudio.refontcrafts.storage.RecipeStorage.AnvilRecipe;
-import ru.refontstudio.refontcrafts.util.ItemUtil;
+import ru.refontstudio.refontcrafts.util.Compat;
+import ru.refontstudio.refontcrafts.util.RecipeQuery;
+import ru.refontstudio.refontcrafts.util.RecipeQuery.MatchMode;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
 
+/** Manual anvil implementation that avoids PrepareAnvilEvent and PDC for Bukkit 1.8.8 compatibility. */
 public class AnvilListener implements Listener {
     private final RefontCrafts plugin;
     private final RecipeStorage storage;
-
-    private final Map<Long, List<AnvilRecipe>> index = new HashMap<>();
-    private int indexedCount = -1;
-
-    private final NamespacedKey RESULT_MARK;
+    private final Map<UUID, ActiveResult> activeResults = new HashMap<UUID, ActiveResult>();
 
     public AnvilListener(RefontCrafts plugin, RecipeStorage storage) {
         this.plugin = plugin;
         this.storage = storage;
-        this.RESULT_MARK = new NamespacedKey(plugin, "rc_anvil_recipe_id");
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onPrepare(PrepareAnvilEvent e) {
-        ItemStack a = e.getInventory().getItem(0);
-        ItemStack b = e.getInventory().getItem(1);
-        if (isAir(a) || isAir(b)) return;
-
-        ensureIndex();
-        Match match = findMatch(a, b, null);
-        if (match == null) return;
-
-        Player viewer = null;
-        for (HumanEntity he : e.getViewers()) {
-            if (he instanceof Player) { viewer = (Player) he; break; }
-        }
-
-        int needA = match.needFirst();
-        int needB = match.needSecond();
-        if (a.getAmount() < needA || b.getAmount() < needB) return;
-
-        AnvilRecipe r = match.recipe;
-        ItemStack preview = r.result.clone();
-        int perSet = Math.max(1, preview.getAmount());
-        preview.setAmount(perSet);
-
-        ItemMeta im = preview.getItemMeta();
-        if (im != null) {
-            im.getPersistentDataContainer().set(RESULT_MARK, PersistentDataType.STRING, r.id);
-            preview.setItemMeta(im);
-        }
-
-        e.setResult(preview);
-
-        int cost = Math.max(0, r.cost);
-        boolean creativeIgnores = plugin.getConfig().getBoolean("settings.anvil.creative_ignores_xp", true);
-        boolean opsIgnore = plugin.getConfig().getBoolean("settings.anvil.ops_ignore_xp", false);
-        if (viewer != null) {
-            if (creativeIgnores && viewer.getGameMode() == GameMode.CREATIVE) cost = 0;
-            else if (opsIgnore && viewer.isOp()) cost = 0;
-        }
-        pushRepairCost(e.getInventory(), cost);
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onOpen(InventoryOpenEvent event) {
+        if (!(event.getPlayer() instanceof Player)) return;
+        if (event.getInventory().getType() != InventoryType.ANVIL) return;
+        scheduleRefresh((Player) event.getPlayer());
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
-    public void onClick(InventoryClickEvent e) {
-        if (e.getInventory().getType() != InventoryType.ANVIL) return;
-        if (!(e.getWhoClicked() instanceof Player)) return;
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onClick(InventoryClickEvent event) {
+        if (!(event.getWhoClicked() instanceof Player)) return;
+        Inventory top = event.getView().getTopInventory();
+        if (!(top instanceof AnvilInventory) || top.getType() != InventoryType.ANVIL) return;
 
-        int raw = e.getRawSlot();
-
-        if (raw == 0 || raw == 1) {
-            if (e.getClick() == ClickType.SWAP_OFFHAND) {
-                e.setCancelled(true);
-            } else {
-                e.setCancelled(false);
+        Player player = (Player) event.getWhoClicked();
+        AnvilInventory inventory = (AnvilInventory) top;
+        if (event.getRawSlot() == 2) {
+            Match match = findMatch(inventory.getItem(0), inventory.getItem(1), player);
+            if (match != null) {
+                event.setCancelled(true);
+                if (event.isLeftClick() || event.isRightClick() || event.isShiftClick()) {
+                    takeResult(player, inventory, match, event.isShiftClick());
+                }
             }
-            return;
         }
-
-        if (raw != 2) return;
-        handleResultSlot(e);
+        scheduleRefresh(player);
     }
 
-    private void handleResultSlot(InventoryClickEvent e) {
-        AnvilInventory inv = (AnvilInventory) e.getInventory();
-        Player p = (Player) e.getWhoClicked();
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = false)
+    public void onDrag(InventoryDragEvent event) {
+        if (!(event.getWhoClicked() instanceof Player)) return;
+        Inventory top = event.getView().getTopInventory();
+        if (!(top instanceof AnvilInventory) || top.getType() != InventoryType.ANVIL) return;
+        scheduleRefresh((Player) event.getWhoClicked());
+    }
 
-        ItemStack resultSlot = inv.getItem(2);
-        if (isAir(resultSlot)) return;
+    private void takeResult(Player player, AnvilInventory inventory, Match match, boolean shift) {
+        ItemStack left = inventory.getItem(0);
+        ItemStack right = inventory.getItem(1);
+        Match fresh = findMatch(left, right, player);
+        if (fresh == null || !fresh.recipe.id.equals(match.recipe.id)) return;
 
-        ItemMeta rm = resultSlot.getItemMeta();
-        if (rm == null) return;
-
-        String rid = rm.getPersistentDataContainer().get(RESULT_MARK, PersistentDataType.STRING);
-        if (rid == null || rid.isEmpty()) return;
-
-        ItemStack a = inv.getItem(0);
-        ItemStack b = inv.getItem(1);
-        if (isAir(a) || isAir(b)) return;
-
-        ensureIndex();
-        Match match = findMatch(a, b, rid);
-        if (match == null) return;
-
-        int needA = match.needFirst();
-        int needB = match.needSecond();
-        int haveA = a.getAmount();
-        int haveB = b.getAmount();
-        int setsByItems = Math.min(haveA / needA, haveB / needB);
-        if (setsByItems <= 0) return;
-
-        AnvilRecipe recipe = match.recipe;
-        int perSet = Math.max(1, recipe.result.getAmount());
-        int maxStack = Math.max(1, recipe.result.getMaxStackSize());
-        int previewSets = Math.max(1, resultSlot.getAmount() / perSet);
-
-        boolean creativeIgnores = plugin.getConfig().getBoolean("settings.anvil.creative_ignores_xp", true);
-        boolean opsIgnore = plugin.getConfig().getBoolean("settings.anvil.ops_ignore_xp", false);
-        boolean ignoreXp = (creativeIgnores && p.getGameMode() == GameMode.CREATIVE) || (opsIgnore && p.isOp());
-
-        int setsByXP = recipe.cost > 0 ? (ignoreXp ? setsByItems : (p.getLevel() / recipe.cost)) : setsByItems;
-
-        boolean shift = e.isShiftClick();
-        boolean numberKey = (e.getClick() == ClickType.NUMBER_KEY);
-        int setsCap = Math.min(setsByItems, setsByXP);
-
-        int setsWanted;
+        int perSet = Math.max(1, fresh.recipe.result.getAmount());
+        int sets;
         if (shift) {
-            int invCap = inventoryCapacityFor(p, recipe.result);
-            if (invCap <= 0) shift = false;
+            int capacity = capacity(player, fresh.recipe.result);
+            sets = Math.min(fresh.possibleSets, capacity / perSet);
+        } else {
+            ItemStack cursor = player.getItemOnCursor();
+            int free;
+            if (Compat.isAir(cursor)) free = 127;
+            else if (cursor.isSimilar(fresh.recipe.result)) free = Math.max(0, 127 - cursor.getAmount());
+            else free = 0;
+            sets = Math.min(previewSets(fresh.possibleSets, perSet), free / perSet);
         }
-        setsWanted = shift ? setsCap : Math.min(previewSets, setsCap);
+        if (sets <= 0) {
+            player.sendMessage(plugin.msg("no_inventory_space"));
+            return;
+        }
 
-        if (setsWanted <= 0) {
-            e.setCancelled(true);
-            if (!ignoreXp && recipe.cost > 0 && p.getLevel() < recipe.cost) {
-                p.sendMessage(plugin.msg("not_enough_levels", "cost", String.valueOf(recipe.cost)));
-                pushRepairCost(inv, recipe.cost);
+        int cost = Math.max(0, fresh.recipe.cost) * sets;
+        if (cost > player.getLevel()) {
+            player.sendMessage(plugin.msg("not_enough_levels", "cost", String.valueOf(cost)));
+            return;
+        }
+
+        int total = perSet * sets;
+        ItemStack output = fresh.recipe.result.clone();
+        output.setAmount(total);
+        if (shift) {
+            Map<Integer, ItemStack> leftovers = player.getInventory().addItem(output);
+            if (!leftovers.isEmpty()) {
+                for (ItemStack item : leftovers.values()) {
+                    if (!Compat.isAir(item)) player.getWorld().dropItemNaturally(player.getLocation(), item);
+                }
+            }
+        } else {
+            ItemStack cursor = player.getItemOnCursor();
+            if (Compat.isAir(cursor)) player.setItemOnCursor(output);
+            else {
+                cursor.setAmount(cursor.getAmount() + total);
+                player.setItemOnCursor(cursor);
+            }
+        }
+
+        inventory.setItem(0, subtract(left, Math.max(1, fresh.recipe.left.getAmount()) * sets));
+        inventory.setItem(1, subtract(right, Math.max(1, fresh.recipe.right.getAmount()) * sets));
+        inventory.setItem(2, null);
+        Compat.setAnvilRepairCost(inventory, 0);
+        if (cost > 0) player.setLevel(Math.max(0, player.getLevel() - cost));
+        activeResults.remove(player.getUniqueId());
+        player.updateInventory();
+    }
+
+    private void refresh(Player player) {
+        if (player == null || !player.isOnline()) return;
+        Inventory top = player.getOpenInventory().getTopInventory();
+        if (!(top instanceof AnvilInventory) || top.getType() != InventoryType.ANVIL) return;
+        AnvilInventory inventory = (AnvilInventory) top;
+        Match match = findMatch(inventory.getItem(0), inventory.getItem(1), player);
+        if (match == null) {
+            ActiveResult old = activeResults.remove(player.getUniqueId());
+            ItemStack current = inventory.getItem(2);
+            if (old != null && !Compat.isAir(current) && current.isSimilar(old.preview)) {
+                inventory.setItem(2, null);
+                Compat.setAnvilRepairCost(inventory, 0);
+                player.updateInventory();
             }
             return;
         }
 
-        int desiredItems = perSet * setsWanted;
-        int acceptedItems = 0;
-        ItemStack base = recipe.result.clone();
-
-        e.setCancelled(true);
-
-        if (numberKey) {
-            int hotbar = e.getHotbarButton();
-            if (hotbar >= 0) {
-                ItemStack slot = p.getInventory().getItem(hotbar);
-                if (slot == null || slot.getType() == Material.AIR) {
-                    int put = Math.min(desiredItems, maxStack);
-                    ItemStack toSet = base.clone(); toSet.setAmount(put);
-                    p.getInventory().setItem(hotbar, toSet);
-                    acceptedItems += put;
-                } else if (slot.isSimilar(base)) {
-                    int can = Math.max(0, maxStack - slot.getAmount());
-                    int put = Math.min(desiredItems, can);
-                    if (put > 0) {
-                        slot.setAmount(slot.getAmount() + put);
-                        p.getInventory().setItem(hotbar, slot);
-                        acceptedItems += put;
-                    }
-                }
-                int rest = desiredItems - acceptedItems;
-                if (rest > 0) acceptedItems += addToInvOrDrop(p, base, rest);
-            }
-        } else if (shift) {
-            acceptedItems += addToInvOrDrop(p, base, desiredItems);
-        } else {
-            ItemStack cursor = e.getCursor();
-            int canCursor = 0;
-            if (cursor == null || cursor.getType() == Material.AIR) canCursor = maxStack;
-            else if (cursor.isSimilar(base)) canCursor = Math.max(0, maxStack - cursor.getAmount());
-            int putOnCursor = Math.min(desiredItems, canCursor);
-            if (putOnCursor > 0) {
-                if (cursor == null || cursor.getType() == Material.AIR) {
-                    ItemStack toSet = base.clone(); toSet.setAmount(putOnCursor);
-                    p.setItemOnCursor(toSet);
-                } else {
-                    cursor.setAmount(cursor.getAmount() + putOnCursor);
-                    p.setItemOnCursor(cursor);
-                }
-            }
-            acceptedItems += putOnCursor;
-            int rest = desiredItems - putOnCursor;
-            if (rest > 0) acceptedItems += addToInvOrDrop(p, base, rest);
-        }
-
-        int setsCrafted = acceptedItems / perSet;
-        if (setsCrafted <= 0) return;
-
-        int spendA = setsCrafted * needA;
-        int spendB = setsCrafted * needB;
-        int spendXP = recipe.cost * setsCrafted;
-
-        ItemStack a2 = a.clone();
-        ItemStack b2 = b.clone();
-        a2.setAmount(a2.getAmount() - spendA);
-        b2.setAmount(b2.getAmount() - spendB);
-        inv.setItem(0, a2.getAmount() <= 0 ? null : a2);
-        inv.setItem(1, b2.getAmount() <= 0 ? null : b2);
-
-        if (spendXP > 0 && !ignoreXp) p.setLevel(Math.max(0, p.getLevel() - spendXP));
-
-        inv.setItem(2, null);
-        pushRepairCost(inv, 0);
-        p.updateInventory();
-
-        String sName = plugin.getConfig().getString("settings.sounds.anvil_success.name", "BLOCK_ANVIL_USE");
-        float vol = (float) plugin.getConfig().getDouble("settings.sounds.anvil_success.volume", 1.0);
-        float pit = (float) plugin.getConfig().getDouble("settings.sounds.anvil_success.pitch", 1.0);
-        p.playSound(p.getLocation(), safeSound(sName, Sound.BLOCK_ANVIL_USE), vol, pit);
+        ItemStack result = match.recipe.result.clone();
+        int perSet = Math.max(1, result.getAmount());
+        int sets = previewSets(match.possibleSets, perSet);
+        result.setAmount(Compat.clientSafeAmount(perSet * sets));
+        inventory.setItem(2, result);
+        Compat.setAnvilRepairCost(inventory, Math.max(0, match.recipe.cost * sets));
+        activeResults.put(player.getUniqueId(), new ActiveResult(match.recipe.id, result.clone()));
+        player.updateInventory();
     }
 
-    private int inventoryCapacityFor(Player p, ItemStack sample) {
-        int cap = 0;
-        int max = sample.getMaxStackSize();
-        for (ItemStack it : p.getInventory().getStorageContents()) {
-            if (it == null || it.getType() == Material.AIR) cap += max;
-            else if (it.isSimilar(sample)) cap += Math.max(0, max - it.getAmount());
-        }
-        return cap;
-    }
-
-    private int addToInvOrDrop(Player p, ItemStack base, int amount) {
-        Map<Integer, ItemStack> rem = p.getInventory().addItem(ItemUtil.cloneWithAmount(base, amount));
-        if (rem.isEmpty()) return amount;
-        int back = 0;
-        for (ItemStack it : rem.values()) if (it != null) back += it.getAmount();
-        int accepted = Math.max(0, amount - back);
-        if (back > 0) p.getWorld().dropItemNaturally(p.getLocation(), ItemUtil.cloneWithAmount(base, back));
-        return accepted;
-    }
-
-    private void pushRepairCost(AnvilInventory inv, int cost) {
-        try { inv.setRepairCost(cost); } catch (Throwable ignored) {}
-        for (HumanEntity he : inv.getViewers()) {
-            if (he instanceof Player) {
-                Player pl = (Player) he;
-                try { pl.getOpenInventory().setProperty(InventoryView.Property.REPAIR_COST, cost); } catch (Throwable ignored) {}
-                try { pl.setWindowProperty(InventoryView.Property.REPAIR_COST, cost); } catch (Throwable ignored) {}
-            }
-        }
-        try {
-            Bukkit.getScheduler().runTask(plugin, new Runnable() {
-                @Override public void run() {
-                    for (HumanEntity he : inv.getViewers()) {
-                        if (he instanceof Player) {
-                            Player pl = (Player) he;
-                            try { pl.getOpenInventory().setProperty(InventoryView.Property.REPAIR_COST, cost); } catch (Throwable ignored) {}
-                            try { pl.setWindowProperty(InventoryView.Property.REPAIR_COST, cost); } catch (Throwable ignored) {}
-                        }
-                    }
-                }
-            });
-        } catch (Throwable ignored) {}
-    }
-
-    private Sound safeSound(String name, Sound def) {
-        try { return Sound.valueOf(name); } catch (Throwable ignored) { return def; }
-    }
-
-    private boolean matches(ItemStack actual, ItemStack recipe) {
-        return ItemUtil.matchesIngredient(actual, ItemUtil.cloneWithAmount(recipe, actual.getAmount()), plugin.exactMeta());
-    }
-
-    private Match findMatch(ItemStack first, ItemStack second, String id) {
-        Match direct = findMatchIn(index.getOrDefault(key(first.getType(), second.getType()), Collections.<AnvilRecipe>emptyList()), first, second, id, false);
-        if (direct != null) return direct;
-        if (plugin.anvilStrictOrder()) return null;
-        return findMatchIn(index.getOrDefault(key(second.getType(), first.getType()), Collections.<AnvilRecipe>emptyList()), first, second, id, true);
-    }
-
-    private Match findMatchIn(List<AnvilRecipe> recipes, ItemStack first, ItemStack second, String id, boolean reversed) {
-        for (AnvilRecipe recipe : recipes) {
-            if (id != null && !recipe.id.equals(id)) continue;
-            ItemStack expectedFirst = reversed ? recipe.right : recipe.left;
-            ItemStack expectedSecond = reversed ? recipe.left : recipe.right;
-            if (matches(first, expectedFirst) && matches(second, expectedSecond)) {
-                return new Match(recipe, reversed);
-            }
+    private Match findMatch(ItemStack left, ItemStack right, Player player) {
+        if (Compat.isAir(left) || Compat.isAir(right)) return null;
+        for (AnvilRecipe recipe : storage.getAnvilRecipes()) {
+            if (!matches(left, recipe.left) || !matches(right, recipe.right)) continue;
+            int possible = Math.min(
+                    left.getAmount() / Math.max(1, recipe.left.getAmount()),
+                    right.getAmount() / Math.max(1, recipe.right.getAmount()));
+            if (possible > 0) return new Match(recipe, possible);
         }
         return null;
     }
 
-    private boolean isAir(ItemStack it) {
-        return it == null || it.getType() == Material.AIR;
+    private boolean matches(ItemStack actual, ItemStack required) {
+        if (plugin.exactMeta()) {
+            ItemStack first = actual.clone();
+            ItemStack second = required.clone();
+            first.setAmount(1);
+            second.setAmount(1);
+            return first.isSimilar(second);
+        }
+        String first = RecipeQuery.signature(actual, plugin, MatchMode.ANVIL);
+        String second = RecipeQuery.signature(required, plugin, MatchMode.ANVIL);
+        return first != null && first.equals(second);
     }
 
-    private void ensureIndex() {
-        int cur = storage.revision();
-        if (cur == indexedCount) return;
-        index.clear();
-        for (AnvilRecipe r : storage.getAnvilRecipes()) {
-            long k = key(r.left.getType(), r.right.getType());
-            List<AnvilRecipe> list = index.get(k);
-            if (list == null) {
-                list = new ArrayList<>();
-                index.put(k, list);
+    private int previewSets(int possible, int perSet) {
+        int limit = Math.max(1, Math.min(127, plugin.craftPreviewLimit()));
+        return Math.max(1, Math.min(possible, Math.max(1, limit / Math.max(1, perSet))));
+    }
+
+    private int capacity(Player player, ItemStack sample) {
+        int capacity = 0;
+        int max = Math.max(1, sample.getMaxStackSize());
+        for (ItemStack item : Compat.storageContents(player.getInventory())) {
+            if (Compat.isAir(item)) capacity += max;
+            else if (item.isSimilar(sample)) capacity += Math.max(0, max - item.getAmount());
+        }
+        return capacity;
+    }
+
+    private ItemStack subtract(ItemStack item, int amount) {
+        if (Compat.isAir(item) || item.getAmount() <= amount) return null;
+        ItemStack result = item.clone();
+        result.setAmount(item.getAmount() - amount);
+        return result;
+    }
+
+    private void scheduleRefresh(final Player player) {
+        plugin.getServer().getScheduler().runTask(plugin, new Runnable() {
+            @Override
+            public void run() {
+                refresh(player);
             }
-            list.add(r);
-        }
-        indexedCount = cur;
+        });
     }
 
-    private long key(Material left, Material right) {
-        return (((long) left.ordinal()) << 32) | (right.ordinal() & 0xffffffffL);
-    }
-
-    private static class Match {
+    private static final class Match {
         private final AnvilRecipe recipe;
-        private final boolean reversed;
+        private final int possibleSets;
 
-        private Match(AnvilRecipe recipe, boolean reversed) {
+        private Match(AnvilRecipe recipe, int possibleSets) {
             this.recipe = recipe;
-            this.reversed = reversed;
+            this.possibleSets = possibleSets;
         }
+    }
 
-        private int needFirst() {
-            return Math.max(1, reversed ? recipe.right.getAmount() : recipe.left.getAmount());
-        }
+    private static final class ActiveResult {
+        private final String recipeId;
+        private final ItemStack preview;
 
-        private int needSecond() {
-            return Math.max(1, reversed ? recipe.left.getAmount() : recipe.right.getAmount());
+        private ActiveResult(String recipeId, ItemStack preview) {
+            this.recipeId = recipeId;
+            this.preview = preview;
         }
     }
 }
