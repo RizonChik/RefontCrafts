@@ -151,7 +151,7 @@ public final class RecipeEditorMenu implements Listener {
         int slot = rawSlot;
         if (slot == SAVE_SLOT) {
             event.setCancelled(true);
-            if (!session.pending) {
+            if (!session.pending && !session.ghostCursor) {
                 queueEdit(player, top, session, new Runnable() {
                     @Override
                     public void run() {
@@ -194,7 +194,22 @@ public final class RecipeEditorMenu implements Listener {
             return;
         }
 
-        if (session.ghostCursor || isUnsafeClick(event)) {
+        if (session.ghostCursor) {
+            event.setCancelled(true);
+            if (!GhostCursorPolicy.canMoveInsideEditor(session.pending, isUnsafeClick(event),
+                    event.isShiftClick(), isNumberKey(event))) return;
+            final ItemStack cursor = cloneOrNull(event.getCursor());
+            final boolean rightClick = event.isRightClick();
+            queueEdit(player, top, session, new Runnable() {
+                @Override
+                public void run() {
+                    moveEditableItem(player, top, slot, session, cursor, rightClick);
+                }
+            });
+            return;
+        }
+
+        if (isUnsafeClick(event)) {
             event.setCancelled(true);
             return;
         }
