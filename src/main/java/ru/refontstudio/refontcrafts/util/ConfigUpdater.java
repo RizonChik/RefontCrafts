@@ -126,6 +126,18 @@ public class ConfigUpdater {
     }
 
     private String translateComment(String comment) {
+        String blockOther = tr(comment,
+                "# Block Bukkit-visible vanilla and modded crafting recipes unless they match a custom recipe.",
+                "# Запретить ванильные и модовые рецепты, видимые Bukkit, если они не совпадают с пользовательскими.",
+                "# Chan cong thuc vanilla va mod qua Bukkit neu khong khop cong thuc tuy chinh.",
+                "# 阻止 Bukkit 可见的原版和模组合成配方，除非匹配自定义配方。");
+        if (blockOther != null) return blockOther;
+        String hybridNote = tr(comment,
+                "# Hybrid servers may have mod recipes outside the Bukkit crafting events.",
+                "# На гибридных ядрах часть модовых рецептов может не проходить через события Bukkit.",
+                "# May chu lai co the xu ly mot so cong thuc mod ngoai su kien Bukkit.",
+                "# 混合服务端的部分模组配方可能不经过 Bukkit 合成事件。");
+        if (hybridNote != null) return hybridNote;
         String locale = currentLocale();
         if ("ru".equals(locale)) return translateRu(comment);
         if ("vi".equals(locale)) return translateVi(comment);

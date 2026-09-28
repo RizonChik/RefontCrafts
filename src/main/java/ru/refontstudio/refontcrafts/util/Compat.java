@@ -39,7 +39,7 @@ public final class Compat {
     }
 
     public static boolean isAir(ItemStack item) {
-        return item == null || item.getType() == Material.AIR;
+        return YouerCompat.isAir(item);
     }
 
     public static boolean isAir(Material material) {

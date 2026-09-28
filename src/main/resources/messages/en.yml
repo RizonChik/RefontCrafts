@@ -16,6 +16,7 @@ messages:
   saved_recipe: "&aSaved recipe: &f%id%"
   saved_anvil: "&aSaved anvil recipe: &f%id% &7(cost: &f%cost%&7)"
   recipe_update_failed: "&cCould not replace the old recipe. Changes were not saved."
+  storage_not_ready: "&eRecipes are still loading. Try again in a moment."
   not_enough_levels: "&cNot enough levels: need &f%cost%"
   no_inventory_space: "&cNo inventory space."
   reloaded: "&aConfig and recipes reloaded."

@@ -9,6 +9,8 @@ import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.inventory.PrepareItemCraftEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.CraftingInventory;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
@@ -20,6 +22,8 @@ import ru.refontstudio.refontcrafts.util.RecipeQuery;
 import ru.refontstudio.refontcrafts.util.RecipeQuery.MatchMode;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +37,7 @@ import java.util.UUID;
 public final class WorkbenchListener implements Listener {
     private final RefontCrafts plugin;
     private final Set<UUID> pendingRefresh = new HashSet<UUID>();
+    private final Map<UUID, Integer> lastMatrix = new HashMap<UUID, Integer>();
 
     public WorkbenchListener(RefontCrafts plugin) {
         this.plugin = plugin;
@@ -42,8 +47,12 @@ public final class WorkbenchListener implements Listener {
     public void onPrepareCraft(PrepareItemCraftEvent event) {
         CraftingInventory inventory = event.getInventory();
         Match match = findMatch(inventory.getMatrix());
-        if (match == null) return;
-        inventory.setResult(preview(match));
+        if (match == null) {
+            if (plugin.blockOtherCraftingRecipes() && !Compat.isAir(inventory.getResult())) inventory.setResult(null);
+            return;
+        }
+        ItemStack result = preview(match);
+        if (!sameStack(inventory.getResult(), result)) inventory.setResult(result);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -58,7 +67,10 @@ public final class WorkbenchListener implements Listener {
 
         if (event.getRawSlot() == 0) {
             Match match = findMatch(inventory.getMatrix());
-            if (match == null) return;
+            if (match == null) {
+                if (plugin.blockOtherCraftingRecipes()) event.setCancelled(true);
+                return;
+            }
             event.setCancelled(true);
             if (!event.isLeftClick() && !event.isRightClick() && !event.isShiftClick()) return;
             craft(player, inventory, match, event.isShiftClick());
@@ -320,6 +332,25 @@ public final class WorkbenchListener implements Listener {
         return type == InventoryType.WORKBENCH || type == InventoryType.CRAFTING;
     }
 
+    private boolean sameStack(ItemStack first, ItemStack second) {
+        if (Compat.isAir(first) || Compat.isAir(second)) return Compat.isAir(first) && Compat.isAir(second);
+        return first.getAmount() == second.getAmount() && first.isSimilar(second);
+    }
+
+    @EventHandler
+    public void onClose(InventoryCloseEvent event) {
+        UUID id = event.getPlayer().getUniqueId();
+        pendingRefresh.remove(id);
+        lastMatrix.remove(id);
+    }
+
+    @EventHandler
+    public void onQuit(PlayerQuitEvent event) {
+        UUID id = event.getPlayer().getUniqueId();
+        pendingRefresh.remove(id);
+        lastMatrix.remove(id);
+    }
+
     private void scheduleRefresh(final Player player) {
         if (player == null || !pendingRefresh.add(player.getUniqueId())) return;
         plugin.getServer().getScheduler().runTask(plugin, new Runnable() {
@@ -330,9 +361,21 @@ public final class WorkbenchListener implements Listener {
                 Inventory top = player.getOpenInventory().getTopInventory();
                 if (!(top instanceof CraftingInventory) || !isCraftingType(top.getType())) return;
                 CraftingInventory crafting = (CraftingInventory) top;
+                int matrixHash = Arrays.deepHashCode(crafting.getMatrix());
                 Match match = findMatch(crafting.getMatrix());
-                if (match != null) crafting.setResult(preview(match));
-                player.updateInventory();
+                if (match == null) {
+                    if (plugin.blockOtherCraftingRecipes() && !Compat.isAir(crafting.getResult())) {
+                        crafting.setResult(null);
+                        player.updateInventory();
+                    }
+                    lastMatrix.remove(player.getUniqueId());
+                    return;
+                }
+                ItemStack result = preview(match);
+                boolean changed = !sameStack(crafting.getResult(), result);
+                if (changed) crafting.setResult(result);
+                Integer previous = lastMatrix.put(player.getUniqueId(), matrixHash);
+                if (changed || previous == null || previous.intValue() != matrixHash) player.updateInventory();
             }
         });
     }

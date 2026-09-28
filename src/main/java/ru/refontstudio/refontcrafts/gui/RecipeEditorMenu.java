@@ -291,6 +291,10 @@ public final class RecipeEditorMenu implements Listener {
     }
 
     private void save(Player player, Inventory inventory, EditorSession session) {
+        if (!storage.isReady()) {
+            player.sendMessage(plugin.prefix() + plugin.msg("storage_not_ready"));
+            return;
+        }
         if (!player.hasPermission("refontcrafts.recipe")) {
             player.sendMessage(plugin.msg("no_permission"));
             return;

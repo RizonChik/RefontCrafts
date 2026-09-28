@@ -21,7 +21,9 @@ public class BackupUtil {
                 fw.write("# anvil\n");
                 for (String s : anvilLines) fw.write(s + "\n");
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable error) {
+            plugin.getLogger().log(java.util.logging.Level.WARNING, "Could not write recipe snapshot", error);
+        }
     }
 
     public static void appendPending(RefontCrafts plugin, String line) {
@@ -33,6 +35,8 @@ public class BackupUtil {
             try (FileWriter fw = new FileWriter(out, true)) {
                 fw.write(line + "\n");
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable error) {
+            plugin.getLogger().log(java.util.logging.Level.SEVERE, "Could not write pending recipe backup", error);
+        }
     }
 }

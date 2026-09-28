@@ -1,13 +1,23 @@
 # RefontCrafts
 
 <div align="center">
-  <img src="https://img.shields.io/badge/Minecraft-1.8.8--26.2-green?style=for-the-badge" alt="Minecraft Version">
+  <img src="https://img.shields.io/badge/Minecraft-1.8.8--26.3-green?style=for-the-badge" alt="Minecraft Version">
   <img src="https://img.shields.io/badge/Java-8+-orange?style=for-the-badge" alt="Java Version">
   <img src="https://img.shields.io/github/v/release/rizonchik/RefontCrafts?style=for-the-badge" alt="Release">
   <img src="https://img.shields.io/github/downloads/rizonchik/RefontCrafts/total?style=for-the-badge" alt="Downloads">
 </div>
 
-Редактор кастомных крафтов для Bukkit, Spigot и Paper 1.8.8–26.2 в одном JAR.
+Редактор кастомных крафтов для Bukkit, Spigot и Paper 1.8.8–26.3 в одном JAR.
+
+## Версия 1.1.0
+
+- Перенесён проверенный хотфикс 1.0.11 для предметов модов на Youer 1.21.1: сохранение и сопоставление учитывают ключ предмета из реестра.
+- Сохранение рецепта в БД стало атомарным. При штатной остановке плагин дожидается очереди записи; резервные записи из `backups/pending-*.txt` восстанавливаются при следующем запуске.
+- Загрузка предметов выполняется на основном потоке. Если предмет не удалось восстановить, запись остаётся в базе, а в лог выводится ID рецепта.
+- Уменьшено число лишних обновлений результата верстака при кликах. Изменение количества при ПКМ и перетаскивании остаётся включённым.
+- Опция `settings.block_other_crafting_recipes: false` может запретить рецепты, проходящие через Bukkit, кроме рецептов плагина. На гибридном сервере часть модовых рецептов может обрабатываться вне Bukkit, поэтому полный запрет модовых крафтов на Youer не гарантирован.
+
+Перед заменой JAR сохрани копию `plugins/RefontCrafts/data.db` или базы MySQL. Конфиг и базу удалять не нужно.
 
 По умолчанию интерфейс на английском, но есть `ru`, `vi` и `zh_cn`. Старые серверы получают совместимые материалы, GUI и legacy-цвета автоматически.
 
@@ -26,10 +36,12 @@
 
 ## Требования
 
-- Bukkit/Spigot/Paper: 1.8.8–26.2
+- Bukkit/Spigot/Paper: 1.8.8–26.3
 - Плагин собран под Java 8; Java для запуска выбирается по требованиям ядра сервера
 - Доступ к HTTPS на первом запуске для загрузки JDBC-библиотек с Maven Central
 - Опционально: AdvancedEnchantments (влияет на режим наковальни)
+
+В 1.1.0 runtime-проверки выполнены на Spigot 1.8.8 и Paper 26.2. Minecraft 26.3 указан в диапазоне совместимости, но отдельный runtime-тест на сервере 26.3 не проводился.
 
 На новых Paper будет предупреждение о legacy-плагине без `api-version`. Это ожидаемо: современный `api-version` сделал бы тот же JAR несовместимым с 1.8.8.
 
@@ -128,13 +140,14 @@ settings:
 
 ## Конфигурация
 
-Плагин сам добавляет недостающие ключи из шаблона в `config.yml` (твои значения не трогает), создаёт `config.yml.bak`.
+Плагин сам добавляет недостающие ключи из шаблона в `config.yml` (твои значения не трогает). Резервная копия `config.yml.bak` создаётся при обновлении существующего конфига.
 
 В шаблоне сейчас есть:
 - `settings.language` для языка интерфейса (`en`, `ru`, `vi`, `zh_cn`)
 - все названия, подсказки и сообщения вынесены в `messages/en.yml`, `messages/ru.yml`, `messages/vi.yml`, `messages/zh_cn.yml`
 - `settings.exact_meta_match: false` по умолчанию
 - `settings.workbench_preview_limit: 126` для предпросмотра результата и батч‑крафта
+- `settings.block_other_crafting_recipes: false` для запрета обычных рецептов, видимых Bukkit
 
 Пример полного конфига:
 ```yaml
@@ -143,7 +156,7 @@ settings:
 
 settings:
   prefix: "§x§2§5§A§F§F§1R§x§2§2§A§8§F§2e§x§1§E§A§1§F§4f§x§1§B§9§B§F§5o§x§1§8§9§4§F§6n§x§1§4§8§D§F§7t§x§1§1§8§6§F§9C§x§0§D§7§F§F§Ar§x§0§A§7§8§F§Ba§x§0§7§7§2§F§Cf§x§0§3§6§B§F§Et§x§0§0§6§4§F§Fs &8»&7 "
-  language: en
+  language: "en"
 
   titles:
     recipe: "§x§2§5§A§F§F§1С§x§2§3§A§A§F§2о§x§2§0§A§5§F§3з§x§1§E§A§0§F§4д§x§1§B§9§B§F§5а§x§1§9§9§6§F§6н§x§1§6§9§1§F§7и§x§1§4§8§C§F§8е §x§0§F§8§2§F§9р§x§0§C§7§D§F§Aе§x§0§A§7§8§F§Bц§x§0§7§7§3§F§Cе§x§0§5§6§E§F§Dп§x§0§2§6§9§F§Eт§x§0§0§6§4§F§Fа"
@@ -154,6 +167,7 @@ settings:
   exact_meta_match: false
   workbench_strict_shape: true
   workbench_allow_mirror: false
+  block_other_crafting_recipes: false
   take_back_on_close: true
   default_anvil_cost: 0
   workbench_preview_limit: 126

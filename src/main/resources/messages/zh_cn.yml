@@ -16,6 +16,7 @@ messages:
   saved_recipe: "&a已保存配方：&f%id%"
   saved_anvil: "&a已保存铁砧配方：&f%id% &7(消耗：&f%cost%&7)"
   recipe_update_failed: "&c无法替换旧配方，修改未保存。"
+  storage_not_ready: "&e配方仍在加载，请稍后再试。"
   not_enough_levels: "&c等级不足：需要 &f%cost%"
   no_inventory_space: "&c背包空间不足。"
   reloaded: "&a配置和配方已重新加载。"

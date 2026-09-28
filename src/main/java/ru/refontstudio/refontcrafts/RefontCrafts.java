@@ -255,6 +255,10 @@ public final class RefontCrafts extends JavaPlugin {
         return getConfig().getBoolean("settings.workbench_allow_mirror", false);
     }
 
+    public boolean blockOtherCraftingRecipes() {
+        return getConfig().getBoolean("settings.block_other_crafting_recipes", false);
+    }
+
     public int craftPreviewLimit() {
         return getConfig().getInt("settings.workbench_preview_limit", 126);
     }

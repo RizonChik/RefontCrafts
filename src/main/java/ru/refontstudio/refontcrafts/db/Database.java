@@ -25,10 +25,14 @@ public class Database {
     }
 
     public Database(RefontCrafts plugin, String forcedType) {
+        this(plugin, forcedType, true);
+    }
+
+    private Database(RefontCrafts plugin, String forcedType, boolean useStartupFailover) {
         this.plugin = plugin;
         this.configuredType = normalizeType(forcedType);
         this.activeType = this.configuredType;
-        if ("mysql".equals(this.configuredType) && plugin.forceSqliteFailover()) {
+        if ("mysql".equals(this.configuredType) && useStartupFailover && plugin.forceSqliteFailover()) {
             buildFailoverSqlite();
         } else {
             buildForType(this.activeType);
@@ -36,7 +40,13 @@ public class Database {
     }
 
     public static Database ofType(RefontCrafts plugin, String type) {
-        return new Database(plugin, type);
+        return new Database(plugin, type, false);
+    }
+
+    public static Database ofFailoverSqlite(RefontCrafts plugin) {
+        Database source = new Database(plugin, "sqlite");
+        source.buildFailoverSqlite();
+        return source;
     }
 
     private void buildForType(String type) {

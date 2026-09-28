@@ -34,6 +34,9 @@ if (Test-Path -LiteralPath $sourceJar -PathType Leaf) {
 
 Write-Host "Building RefontCrafts $version..."
 mvn package -DskipTests
+if ($LASTEXITCODE -ne 0) {
+    throw "Maven build failed with exit code $LASTEXITCODE. Existing JARs were not repackaged."
+}
 
 if (-not (Test-Path -LiteralPath $sourceJar -PathType Leaf)) {
     throw "Maven did not produce $sourceJar"
@@ -66,7 +69,12 @@ try {
     Copy-Item -LiteralPath $tempJar -Destination $ruJar -Force
 }
 finally {
-    Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
+    $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+    $resolvedTemp = [IO.Path]::GetFullPath($temp)
+    if ($resolvedTemp.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase) -and
+        (Split-Path -Leaf $resolvedTemp) -like 'RefontCrafts-dual-*') {
+        Remove-Item -LiteralPath $resolvedTemp -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 Write-Host "Russian build: $ruJar"

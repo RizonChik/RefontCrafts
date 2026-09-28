@@ -33,6 +33,10 @@ settings:
   # If enabled, ABC will also match as CBA on the same row.
   workbench_allow_mirror: false
 
+  # Block Bukkit-visible vanilla and modded crafting recipes unless they match a custom recipe.
+  # Hybrid servers may have mod recipes outside the Bukkit crafting events.
+  block_other_crafting_recipes: false
+
   # Return items to player when closing the GUI without saving
   take_back_on_close: true
 

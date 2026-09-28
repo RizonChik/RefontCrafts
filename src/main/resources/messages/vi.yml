@@ -16,6 +16,7 @@ messages:
   saved_recipe: "&aĐã lưu công thức: &f%id%"
   saved_anvil: "&aĐã lưu công thức đe: &f%id% &7(chi phí: &f%cost%&7)"
   recipe_update_failed: "&cKhông thể thay thế công thức cũ. Thay đổi chưa được lưu."
+  storage_not_ready: "&eCông thức vẫn đang tải. Hãy thử lại sau ít giây."
   not_enough_levels: "&cKhông đủ cấp: cần &f%cost%"
   no_inventory_space: "&cKhông đủ chỗ trong túi đồ."
   reloaded: "&aĐã nạp lại cấu hình và công thức."

@@ -12,8 +12,12 @@ import ru.refontstudio.refontcrafts.util.BackupUtil;
 import ru.refontstudio.refontcrafts.util.ItemCodec;
 import ru.refontstudio.refontcrafts.util.ItemUtil;
 import ru.refontstudio.refontcrafts.util.ChatLog;
+import ru.refontstudio.refontcrafts.util.Compat;
 
 import java.io.File;
+import java.io.BufferedReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -33,6 +37,7 @@ public class RecipeStorage {
     private final ExecutorService ioExecutor;
     private final AtomicLong idSequence = new AtomicLong(System.currentTimeMillis());
     private volatile boolean closed = false;
+    private volatile boolean ready = false;
 
     public RecipeStorage(RefontCrafts plugin, Database db) {
         this.plugin = plugin;
@@ -48,16 +53,19 @@ public class RecipeStorage {
         closed = true;
         ioExecutor.shutdown();
         try {
-            if (!ioExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
+            if (!ioExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
+                plugin.getLogger().severe("Storage tasks did not finish within 30 seconds; check the database before restarting.");
                 ioExecutor.shutdownNow();
                 ioExecutor.awaitTermination(2, TimeUnit.SECONDS);
             }
         } catch (InterruptedException interrupted) {
+            plugin.getLogger().severe("Storage shutdown interrupted; some recipe writes may not be committed.");
             ioExecutor.shutdownNow();
             Thread.currentThread().interrupt();
         }
     }
     private boolean alive() { return !closed && plugin.isEnabled(); }
+    public boolean isReady() { return ready && alive(); }
 
     public int shapelessCount() { return workbench.size(); }
     public int anvilCount() { return anvil.size(); }
@@ -68,90 +76,67 @@ public class RecipeStorage {
 
     public void loadAllAsync(Runnable onDone) {
         if (!alive()) return;
+        ready = false;
         runAsync(() -> {
             if (!alive()) return;
 
-            boolean ready = db.ensureReadyWithRetry(3, 1000);
-            if (!ready) db.activateFailoverSqlite();
-            try { db.init(); } catch (Throwable ignored) {}
+            boolean dbAvailable = db.ensureReadyWithRetry(3, 1000);
+            if (!dbAvailable && !db.activateFailoverSqlite()) return;
+            if (!db.init()) return;
 
             autoMigrateIfDbTypeChanged();
             bootstrapFromConfigIfNeeded();
+            recoverPendingRecipes();
 
-            List<LoadedWorkbench> wbList = new ArrayList<>();
-            List<AnvilRecipe> anvilList = new ArrayList<>();
+            List<RawWorkbench> wbList = new ArrayList<RawWorkbench>();
+            List<RawAnvil> anvilList = new ArrayList<RawAnvil>();
+            final boolean[] loadSucceeded = {true};
 
             try (Connection cn = db.getConnection();
                  PreparedStatement ps = cn.prepareStatement("SELECT id,result FROM shapeless_recipes ORDER BY created_at ASC");
                  ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     String id = rs.getString(1);
-                    String resStr = rs.getString(2);
-
-                    List<ItemStack> raw = new ArrayList<>();
-                    try (PreparedStatement pi = cn.prepareStatement("SELECT ord,item FROM shapeless_ingredients WHERE recipe_id=? ORDER BY ord ASC")) {
+                    List<String> ingredients = new ArrayList<String>();
+                    try (PreparedStatement pi = cn.prepareStatement(
+                            "SELECT ord,item FROM shapeless_ingredients WHERE recipe_id=? ORDER BY ord ASC")) {
                         pi.setString(1, id);
                         try (ResultSet ri = pi.executeQuery()) {
-                            while (ri.next()) {
-                                ItemStack is = ItemCodec.parseString(ri.getString(2));
-                                if (is == null) is = new ItemStack(Material.AIR);
-                                raw.add(ItemUtil.cloneWithAmount(is, Math.max(1, is.getAmount())));
-                            }
+                            while (ri.next()) ingredients.add(ri.getString(2));
                         }
                     }
-
-                    ItemStack res = ItemCodec.parseString(resStr);
-                    if (res == null || res.getType() == Material.AIR) continue;
-
-                    boolean shaped = raw.size() == 9;
-                    if (shaped) {
-                        List<ItemStack> payload = new ArrayList<>(9);
-                        for (int i = 0; i < 9; i++) {
-                            ItemStack it = i < raw.size() ? raw.get(i) : new ItemStack(Material.AIR);
-                            payload.add(ItemUtil.cloneWithAmount(it, Math.max(1, it.getAmount())));
-                        }
-                        wbList.add(new LoadedWorkbench(id, payload, ItemUtil.cloneWithAmount(res, Math.max(1, res.getAmount())), true));
-                    } else {
-                        List<ItemStack> trimmed = new ArrayList<>();
-                        for (ItemStack it : raw) if (it != null && it.getType() != Material.AIR) trimmed.add(ItemUtil.cloneWithAmount(it, Math.max(1, it.getAmount())));
-                        if (!trimmed.isEmpty()) wbList.add(new LoadedWorkbench(id, trimmed, ItemUtil.cloneWithAmount(res, Math.max(1, res.getAmount())), false));
-                    }
+                    wbList.add(new RawWorkbench(id, ingredients, rs.getString(2)));
                 }
-            } catch (Throwable t) {
-                runSync(() -> ChatLog.send(plugin.prefix() + "&cDB error: load workbench: &f" + t.getMessage()));
+            } catch (Exception error) {
+                loadSucceeded[0] = false;
+                plugin.getLogger().log(Level.SEVERE, "Could not load workbench recipes", error);
             }
 
             try (Connection cn = db.getConnection();
-                 PreparedStatement ps = cn.prepareStatement("SELECT id,left_item,right_item,result,cost FROM anvil_recipes ORDER BY created_at ASC");
+                 PreparedStatement ps = cn.prepareStatement(
+                         "SELECT id,left_item,right_item,result,cost FROM anvil_recipes ORDER BY created_at ASC");
                  ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    String id = rs.getString(1);
-                    ItemStack left = ItemCodec.parseString(rs.getString(2));
-                    ItemStack right = ItemCodec.parseString(rs.getString(3));
-                    ItemStack result = ItemCodec.parseString(rs.getString(4));
-                    int cost = rs.getInt(5);
-                    if (left != null && right != null && result != null && left.getType() != Material.AIR && right.getType() != Material.AIR && result.getType() != Material.AIR) {
-                        anvilList.add(new AnvilRecipe(id, left, right, result, cost));
-                    }
+                    anvilList.add(new RawAnvil(rs.getString(1), rs.getString(2),
+                            rs.getString(3), rs.getString(4), rs.getInt(5)));
                 }
-            } catch (Throwable t) {
-                runSync(() -> ChatLog.send(plugin.prefix() + "&cDB error: load anvil: &f" + t.getMessage()));
+            } catch (Exception error) {
+                loadSucceeded[0] = false;
+                plugin.getLogger().log(Level.SEVERE, "Could not load anvil recipes", error);
             }
 
-            List<String> snapS = new ArrayList<>();
-            for (LoadedWorkbench s : wbList) {
-                StringBuilder sb = new StringBuilder();
-                sb.append("S;").append(s.id).append(";").append(ItemCodec.formatString(s.result)).append(";");
-                List<String> items = new ArrayList<>();
-                for (ItemStack it : s.ingredients) items.add(ItemCodec.formatString(it));
-                sb.append(String.join(",", items));
-                if (s.shaped) sb.append(";SHAPED");
-                snapS.add(sb.toString());
+            if (!loadSucceeded[0]) return;
+
+            List<String> snapS = new ArrayList<String>();
+            for (RawWorkbench recipe : wbList) {
+                String line = "S;" + recipe.id + ";" + recipe.result + ";" + String.join(",", recipe.ingredients);
+                if (recipe.ingredients.size() == 9) line += ";SHAPED";
+                snapS.add(line);
             }
-            List<String> snapA = new ArrayList<>();
-            for (AnvilRecipe a : anvilList) {
-                String line = "A;" + a.id + ";" + ItemCodec.formatString(a.left) + ";" + ItemCodec.formatString(a.right) + ";" + ItemCodec.formatString(a.result) + ";" + a.cost;
-                snapA.add(line);
+            List<String> snapA = new ArrayList<String>();
+            for (RawAnvil recipe : anvilList) {
+                snapA.add("A;" + recipe.id + ";" + recipe.left + ";" + recipe.right + ";"
+                        + recipe.result + ";" + recipe.cost);
             }
             BackupUtil.writeSnapshot(plugin, snapS, snapA, db.getActiveType());
 
@@ -162,11 +147,40 @@ public class RecipeStorage {
                     unregisterAllShapeless();
                     anvil.clear();
                     workbench.clear();
-                    for (LoadedWorkbench s : wbList) {
-                        registerWorkbench(s.id, s.ingredients, s.result, s.shaped);
-                        workbench.put(s.id, new WorkbenchRecipe(s.id, s.ingredients, s.result, s.shaped));
+                    for (RawWorkbench recipe : wbList) {
+                        try {
+                            ItemStack result = ItemCodec.parseString(recipe.result);
+                            if (Compat.isAir(result)) throw new IllegalStateException("Result could not be decoded");
+                            List<ItemStack> ingredients = new ArrayList<ItemStack>();
+                            boolean shaped = recipe.ingredients.size() == 9;
+                            for (String encoded : recipe.ingredients) {
+                                ItemStack item = ItemCodec.parseString(encoded);
+                                if (item == null) throw new IllegalStateException("Ingredient could not be decoded");
+                                if (shaped || !Compat.isAir(item)) ingredients.add(item);
+                            }
+                            if (ingredients.isEmpty()) throw new IllegalStateException("No ingredients");
+                            registerWorkbench(recipe.id, ingredients, result, shaped);
+                            workbench.put(recipe.id, new WorkbenchRecipe(recipe.id, ingredients, result, shaped));
+                        } catch (Exception error) {
+                            plugin.getLogger().log(Level.SEVERE,
+                                    "Workbench recipe " + recipe.id + " remains in database but could not be loaded", error);
+                        }
                     }
-                    for (AnvilRecipe a : anvilList) anvil.put(a.id, a);
+                    for (RawAnvil recipe : anvilList) {
+                        try {
+                            ItemStack left = ItemCodec.parseString(recipe.left);
+                            ItemStack right = ItemCodec.parseString(recipe.right);
+                            ItemStack result = ItemCodec.parseString(recipe.result);
+                            if (Compat.isAir(left) || Compat.isAir(right) || Compat.isAir(result)) {
+                                throw new IllegalStateException("Anvil item could not be decoded");
+                            }
+                            anvil.put(recipe.id, new AnvilRecipe(recipe.id, left, right, result, recipe.cost));
+                        } catch (Exception error) {
+                            plugin.getLogger().log(Level.SEVERE,
+                                    "Anvil recipe " + recipe.id + " remains in database but could not be loaded", error);
+                        }
+                    }
+                    ready = true;
                     if (onDone != null) onDone.run();
                 });
             } catch (IllegalPluginAccessException ignored) {}
@@ -188,17 +202,29 @@ public class RecipeStorage {
         }
         if (prev.equalsIgnoreCase(curr)) return;
 
-        Database src = Database.ofType(plugin, prev);
-        if (isDbEmpty(db)) {
-            try {
-                migrateAll(src, db);
-                runSync(() -> ChatLog.send(plugin.prefix() + "&aMigrated recipes from &f" + prev + " &7→ &f" + curr + "&a."));
-            } catch (Throwable t) {
-                runSync(() -> ChatLog.send(plugin.prefix() + "&cMigration error from &f" + prev + " &cto &f" + curr + "&c: &f" + t.getMessage()));
-            }
+        if (db.isFailoverActive() && "mysql".equalsIgnoreCase(prev)) {
+            // The primary MySQL database is unavailable; keep it untouched until it returns.
+            state.set("database.last_type", curr);
+            saveState(state);
+            return;
         }
-        state.set("database.last_type", curr);
-        saveState(state);
+        List<Database> sources = new ArrayList<Database>();
+        if ("sqlite".equalsIgnoreCase(prev) && "mysql".equalsIgnoreCase(curr)) {
+            Database normal = Database.ofType(plugin, "sqlite");
+            Database failover = Database.ofFailoverSqlite(plugin);
+            if (!isDbEmpty(normal)) sources.add(normal);
+            if (!isDbEmpty(failover)) sources.add(failover);
+        } else {
+            sources.add(Database.ofType(plugin, prev));
+        }
+        try {
+            for (Database source : sources) migrateAll(source, db);
+            state.set("database.last_type", curr);
+            saveState(state);
+            runSync(() -> ChatLog.send(plugin.prefix() + "&aMigrated recipes from &f" + prev + " &7→ &f" + curr + "&a."));
+        } catch (Exception error) {
+            plugin.getLogger().log(Level.SEVERE, "Recipe database migration failed; original database remains untouched", error);
+        }
     }
 
     private boolean isDbEmpty(Database target) {
@@ -219,54 +245,78 @@ public class RecipeStorage {
     }
 
     private void migrateAll(Database src, Database dst) throws Exception {
-        try (Connection scn = src.getConnection()) {
-            try (PreparedStatement ps = scn.prepareStatement("SELECT id,result,created_at FROM shapeless_recipes");
-                 ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    String id = rs.getString("id");
-                    String result = rs.getString("result");
-                    long created = rs.getLong("created_at");
-                    try (Connection dcn = dst.getConnection();
-                         PreparedStatement ins = dcn.prepareStatement("INSERT INTO shapeless_recipes(id,result,created_at) VALUES(?,?,?)")) {
-                        ins.setString(1, id);
-                        ins.setString(2, result);
-                        ins.setLong(3, created);
-                        ins.executeUpdate();
+        try (Connection source = src.getConnection();
+             Connection target = dst.getConnection()) {
+            target.setAutoCommit(false);
+            try {
+                try (PreparedStatement read = source.prepareStatement(
+                        "SELECT id,result,created_at FROM shapeless_recipes");
+                     ResultSet rows = read.executeQuery();
+                     PreparedStatement exists = target.prepareStatement(
+                        "SELECT 1 FROM shapeless_recipes WHERE id=?");
+                     PreparedStatement insert = target.prepareStatement(
+                        "INSERT INTO shapeless_recipes(id,result,created_at) VALUES(?,?,?)")) {
+                    while (rows.next()) {
+                        String id = rows.getString(1);
+                        if (exists(exists, id)) continue;
+                        insert.setString(1, id);
+                        insert.setString(2, rows.getString(2));
+                        insert.setLong(3, rows.getLong(3));
+                        insert.executeUpdate();
                     }
-                    try (PreparedStatement pi = scn.prepareStatement("SELECT ord,item FROM shapeless_ingredients WHERE recipe_id=? ORDER BY ord ASC")) {
-                        pi.setString(1, id);
-                        try (ResultSet ri = pi.executeQuery()) {
-                            int ord = 0;
-                            while (ri.next()) {
-                                String item = ri.getString("item");
-                                try (Connection dcn = dst.getConnection();
-                                     PreparedStatement insI = dcn.prepareStatement("INSERT INTO shapeless_ingredients(recipe_id,ord,item) VALUES(?,?,?)")) {
-                                    insI.setString(1, id);
-                                    insI.setInt(2, ord++);
-                                    insI.setString(3, item);
-                                    insI.executeUpdate();
-                                }
-                            }
+                }
+                try (PreparedStatement read = source.prepareStatement(
+                        "SELECT recipe_id,ord,item FROM shapeless_ingredients");
+                     ResultSet rows = read.executeQuery();
+                     PreparedStatement exists = target.prepareStatement(
+                        "SELECT 1 FROM shapeless_ingredients WHERE recipe_id=? AND ord=?");
+                     PreparedStatement insert = target.prepareStatement(
+                        "INSERT INTO shapeless_ingredients(recipe_id,ord,item) VALUES(?,?,?)")) {
+                    while (rows.next()) {
+                        String id = rows.getString(1);
+                        int ord = rows.getInt(2);
+                        exists.setString(1, id);
+                        exists.setInt(2, ord);
+                        try (ResultSet found = exists.executeQuery()) {
+                            if (found.next()) continue;
                         }
+                        insert.setString(1, id);
+                        insert.setInt(2, ord);
+                        insert.setString(3, rows.getString(3));
+                        insert.executeUpdate();
                     }
                 }
+                try (PreparedStatement read = source.prepareStatement(
+                        "SELECT id,left_item,right_item,result,cost,created_at FROM anvil_recipes");
+                     ResultSet rows = read.executeQuery();
+                     PreparedStatement exists = target.prepareStatement(
+                        "SELECT 1 FROM anvil_recipes WHERE id=?");
+                     PreparedStatement insert = target.prepareStatement(
+                        "INSERT INTO anvil_recipes(id,left_item,right_item,result,cost,created_at) VALUES(?,?,?,?,?,?)")) {
+                    while (rows.next()) {
+                        String id = rows.getString(1);
+                        if (exists(exists, id)) continue;
+                        insert.setString(1, id);
+                        insert.setString(2, rows.getString(2));
+                        insert.setString(3, rows.getString(3));
+                        insert.setString(4, rows.getString(4));
+                        insert.setInt(5, rows.getInt(5));
+                        insert.setLong(6, rows.getLong(6));
+                        insert.executeUpdate();
+                    }
+                }
+                target.commit();
+            } catch (Exception error) {
+                target.rollback();
+                throw error;
             }
+        }
+    }
 
-            try (PreparedStatement ps = scn.prepareStatement("SELECT id,left_item,right_item,result,cost,created_at FROM anvil_recipes");
-                 ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    try (Connection dcn = dst.getConnection();
-                         PreparedStatement ins = dcn.prepareStatement("INSERT INTO anvil_recipes(id,left_item,right_item,result,cost,created_at) VALUES(?,?,?,?,?,?)")) {
-                        ins.setString(1, rs.getString("id"));
-                        ins.setString(2, rs.getString("left_item"));
-                        ins.setString(3, rs.getString("right_item"));
-                        ins.setString(4, rs.getString("result"));
-                        ins.setInt(5, rs.getInt("cost"));
-                        ins.setLong(6, rs.getLong("created_at"));
-                        ins.executeUpdate();
-                    }
-                }
-            }
+    private boolean exists(PreparedStatement query, String id) throws Exception {
+        query.setString(1, id);
+        try (ResultSet rows = query.executeQuery()) {
+            return rows.next();
         }
     }
 
@@ -330,20 +380,72 @@ public class RecipeStorage {
         }
     }
 
+    private void recoverPendingRecipes() {
+        File directory = new File(plugin.getDataFolder(), "backups");
+        File[] pending = directory.listFiles((dir, name) -> name.startsWith("pending-") && name.endsWith(".txt"));
+        if (pending == null) return;
+        Arrays.sort(pending, Comparator.comparing(File::getName));
+        for (File file : pending) {
+            boolean complete = true;
+            int restored = 0;
+            try (BufferedReader reader = Files.newBufferedReader(file.toPath(), StandardCharsets.UTF_8)) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (line.trim().isEmpty()) continue;
+                    try {
+                        if (line.startsWith("S;")) {
+                            String[] parts = line.split(";", -1);
+                            if (parts.length < 4 || !validRecipeId(parts[1])) throw new IllegalArgumentException("Invalid workbench recovery record");
+                            List<String> ingredients = Arrays.asList(parts[3].split(",", -1));
+                            if (ingredients.isEmpty() || ingredients.size() > 9) throw new IllegalArgumentException("Invalid ingredient count");
+                            insertWorkbench(parts[1], ingredients, parts[2], true);
+                        } else if (line.startsWith("A;")) {
+                            String[] parts = line.split(";", -1);
+                            if (parts.length != 6 || !validRecipeId(parts[1])) throw new IllegalArgumentException("Invalid anvil recovery record");
+                            insertAnvil(parts[1], parts[2], parts[3], parts[4], Integer.parseInt(parts[5]), true);
+                        } else {
+                            throw new IllegalArgumentException("Unknown recovery record");
+                        }
+                        restored++;
+                    } catch (Exception error) {
+                        complete = false;
+                        plugin.getLogger().log(Level.SEVERE, "Could not recover a recipe from " + file.getName(), error);
+                    }
+                }
+            } catch (Exception error) {
+                complete = false;
+                plugin.getLogger().log(Level.SEVERE, "Could not read pending recipes from " + file.getName(), error);
+            }
+            if (complete) {
+                try {
+                    Files.move(file.toPath(), new File(directory,
+                            file.getName() + ".recovered-" + System.currentTimeMillis()).toPath());
+                    if (restored > 0) plugin.getLogger().info("Recovered " + restored + " recipes from " + file.getName());
+                } catch (Exception error) {
+                    plugin.getLogger().log(Level.WARNING, "Recovered recipes but could not archive " + file.getName(), error);
+                }
+            }
+        }
+    }
+
+    private boolean validRecipeId(String id) {
+        return id != null && id.matches("[A-Za-z0-9_-]{1,64}");
+    }
+
     public String saveShapedRecipe(List<ItemStack> matrix9, ItemStack result) {
+        if (!isReady()) throw new IllegalStateException("Recipe storage has not finished loading");
         String id = nextId("s_");
         List<ItemStack> copy = normalizeTo9(matrix9);
         registerWorkbench(id, copy, ItemUtil.cloneWithAmount(result, Math.max(1, result.getAmount())), true);
         workbench.put(id, new WorkbenchRecipe(id, copy, ItemUtil.cloneWithAmount(result, Math.max(1, result.getAmount())), true));
+        List<String> encoded = encodeItems(copy);
+        String encodedResult = ItemCodec.formatString(result);
         boolean async = plugin.getConfig().getBoolean("settings.database.async_save", true);
         Runnable task = () -> {
-            boolean ok = tryInsertWorkbench(id, copy, result);
+            boolean ok = tryInsertWorkbench(id, encoded, encodedResult);
             if (!ok) {
-                StringBuilder sb = new StringBuilder();
-                List<String> items = new ArrayList<>();
-                for (ItemStack it : copy) items.add(ItemCodec.formatString(it));
-                sb.append("S;").append(id).append(";").append(ItemCodec.formatString(result)).append(";").append(String.join(",", items)).append(";SHAPED");
-                BackupUtil.appendPending(plugin, sb.toString());
+                BackupUtil.appendPending(plugin, "S;" + id + ";" + encodedResult + ";" + String.join(",", encoded) + ";SHAPED");
+                plugin.getLogger().severe("Workbench recipe " + id + " was not saved to database; see backups/pending-*.txt");
             }
         };
         if (async && alive()) runAsync(task); else task.run();
@@ -351,20 +453,20 @@ public class RecipeStorage {
     }
 
     public String saveShapelessRecipe(List<ItemStack> ingredients, ItemStack result) {
+        if (!isReady()) throw new IllegalStateException("Recipe storage has not finished loading");
         String id = nextId("s_");
         List<ItemStack> copy = new ArrayList<>();
         for (ItemStack it : ingredients) copy.add(ItemUtil.cloneWithAmount(it, Math.max(1, it.getAmount())));
         registerWorkbench(id, copy, ItemUtil.cloneWithAmount(result, Math.max(1, result.getAmount())), false);
         workbench.put(id, new WorkbenchRecipe(id, copy, ItemUtil.cloneWithAmount(result, Math.max(1, result.getAmount())), false));
+        List<String> encoded = encodeItems(copy);
+        String encodedResult = ItemCodec.formatString(result);
         boolean async = plugin.getConfig().getBoolean("settings.database.async_save", true);
         Runnable task = () -> {
-            boolean ok = tryInsertShapeless(id, copy, result);
+            boolean ok = tryInsertWorkbench(id, encoded, encodedResult);
             if (!ok) {
-                StringBuilder sb = new StringBuilder();
-                List<String> items = new ArrayList<>();
-                for (ItemStack it : copy) items.add(ItemCodec.formatString(it));
-                sb.append("S;").append(id).append(";").append(ItemCodec.formatString(result)).append(";").append(String.join(",", items));
-                BackupUtil.appendPending(plugin, sb.toString());
+                BackupUtil.appendPending(plugin, "S;" + id + ";" + encodedResult + ";" + String.join(",", encoded));
+                plugin.getLogger().severe("Workbench recipe " + id + " was not saved to database; see backups/pending-*.txt");
             }
         };
         if (async && alive()) runAsync(task); else task.run();
@@ -372,14 +474,19 @@ public class RecipeStorage {
     }
 
     public String saveAnvilRecipe(ItemStack left, ItemStack right, ItemStack result, int cost) {
+        if (!isReady()) throw new IllegalStateException("Recipe storage has not finished loading");
         String id = nextId("a_");
         anvil.put(id, new AnvilRecipe(id, left.clone(), right.clone(), result.clone(), cost));
+        String encodedLeft = ItemCodec.formatString(left);
+        String encodedRight = ItemCodec.formatString(right);
+        String encodedResult = ItemCodec.formatString(result);
         boolean async = plugin.getConfig().getBoolean("settings.database.async_save", true);
         Runnable task = () -> {
-            boolean ok = tryInsertAnvil(id, left, right, result, cost);
+            boolean ok = tryInsertAnvil(id, encodedLeft, encodedRight, encodedResult, cost);
             if (!ok) {
-                String line = "A;" + id + ";" + ItemCodec.formatString(left) + ";" + ItemCodec.formatString(right) + ";" + ItemCodec.formatString(result) + ";" + cost;
+                String line = "A;" + id + ";" + encodedLeft + ";" + encodedRight + ";" + encodedResult + ";" + cost;
                 BackupUtil.appendPending(plugin, line);
+                plugin.getLogger().severe("Anvil recipe " + id + " was not saved to database; see backups/pending-*.txt");
             }
         };
         if (async && alive()) runAsync(task); else task.run();
@@ -387,6 +494,7 @@ public class RecipeStorage {
     }
 
     public boolean deleteWorkbenchRecipe(String id) {
+        if (!isReady()) return false;
         unregisterById(id);
         WorkbenchRecipe removed = workbench.remove(id);
         if (removed == null) return false;
@@ -402,6 +510,7 @@ public class RecipeStorage {
     }
 
     public boolean deleteAnvilRecipe(String id) {
+        if (!isReady()) return false;
         AnvilRecipe removed = anvil.remove(id);
         if (removed == null) return false;
 
@@ -422,12 +531,15 @@ public class RecipeStorage {
         try (Connection cn = db.getConnection();
              PreparedStatement d1 = cn.prepareStatement("DELETE FROM shapeless_ingredients WHERE recipe_id=?");
              PreparedStatement d2 = cn.prepareStatement("DELETE FROM shapeless_recipes WHERE id=?")) {
+            cn.setAutoCommit(false);
             d1.setString(1, id);
             d1.executeUpdate();
             d2.setString(1, id);
             d2.executeUpdate();
+            cn.commit();
             return true;
         } catch (Throwable t) {
+            plugin.getLogger().log(Level.SEVERE, "Failed to delete workbench recipe " + id, t);
             return false;
         }
     }
@@ -440,125 +552,120 @@ public class RecipeStorage {
             d.executeUpdate();
             return true;
         } catch (Throwable t) {
+            plugin.getLogger().log(Level.SEVERE, "Failed to delete anvil recipe " + id, t);
             return false;
         }
     }
 
-    private boolean tryInsertWorkbench(String id, List<ItemStack> matrix9, ItemStack result) {
-        try (Connection cn = db.getConnection();
-             PreparedStatement ins = cn.prepareStatement("INSERT INTO shapeless_recipes(id,result,created_at) VALUES(?,?,?)")) {
-            ins.setString(1, id);
-            ins.setString(2, ItemCodec.formatString(ItemUtil.cloneWithAmount(result, Math.max(1, result.getAmount()))));
-            ins.setLong(3, System.currentTimeMillis());
-            ins.executeUpdate();
-            for (int i = 0; i < 9; i++) {
-                try (PreparedStatement insI = cn.prepareStatement("INSERT INTO shapeless_ingredients(recipe_id,ord,item) VALUES(?,?,?)")) {
-                    insI.setString(1, id);
-                    insI.setInt(2, i);
-                    insI.setString(3, ItemCodec.formatString(ItemUtil.cloneWithAmount(matrix9.get(i), Math.max(1, matrix9.get(i).getAmount()))));
-                    insI.executeUpdate();
+    private List<String> encodeItems(List<ItemStack> items) {
+        List<String> encoded = new ArrayList<String>(items.size());
+        for (ItemStack item : items) encoded.add(ItemCodec.formatString(item));
+        return encoded;
+    }
+
+    private boolean tryInsertWorkbench(String id, List<String> ingredients, String result) {
+        try {
+            insertWorkbench(id, ingredients, result, false);
+            return true;
+        } catch (Throwable primary) {
+            if (!"sqlite".equalsIgnoreCase(db.getActiveType()) && db.activateFailoverSqlite()) {
+                try {
+                    insertWorkbench(id, ingredients, result, false);
+                    recordFailoverLocation();
+                    return true;
+                } catch (Throwable fallback) {
+                    primary.addSuppressed(fallback);
                 }
             }
-            return true;
-        } catch (Throwable first) {
-            if (!"sqlite".equalsIgnoreCase(db.getActiveType())) {
-                db.activateFailoverSqlite();
-                try { db.init(); } catch (Throwable ignored) {}
-                try (Connection cn = db.getConnection();
-                     PreparedStatement ins = cn.prepareStatement("INSERT INTO shapeless_recipes(id,result,created_at) VALUES(?,?,?)")) {
-                    ins.setString(1, id);
-                    ins.setString(2, ItemCodec.formatString(ItemUtil.cloneWithAmount(result, Math.max(1, result.getAmount()))));
-                    ins.setLong(3, System.currentTimeMillis());
-                    ins.executeUpdate();
-                    for (int i = 0; i < 9; i++) {
-                        try (PreparedStatement insI = cn.prepareStatement("INSERT INTO shapeless_ingredients(recipe_id,ord,item) VALUES(?,?,?)")) {
-                            insI.setString(1, id);
-                            insI.setInt(2, i);
-                            insI.setString(3, ItemCodec.formatString(ItemUtil.cloneWithAmount(matrix9.get(i), Math.max(1, matrix9.get(i).getAmount()))));
-                            insI.executeUpdate();
-                        }
-                    }
-                    return true;
-                } catch (Throwable ignored) {}
-            }
+            plugin.getLogger().log(Level.SEVERE, "Failed to persist workbench recipe " + id, primary);
             return false;
         }
     }
 
-    private boolean tryInsertShapeless(String id, List<ItemStack> copy, ItemStack result) {
-        try (Connection cn = db.getConnection();
-             PreparedStatement ins = cn.prepareStatement("INSERT INTO shapeless_recipes(id,result,created_at) VALUES(?,?,?)")) {
-            ins.setString(1, id);
-            ins.setString(2, ItemCodec.formatString(ItemUtil.cloneWithAmount(result, Math.max(1, result.getAmount()))));
-            ins.setLong(3, System.currentTimeMillis());
-            ins.executeUpdate();
-            int ord = 0;
-            for (ItemStack it : copy) {
-                try (PreparedStatement insI = cn.prepareStatement("INSERT INTO shapeless_ingredients(recipe_id,ord,item) VALUES(?,?,?)")) {
-                    insI.setString(1, id);
-                    insI.setInt(2, ord++);
-                    insI.setString(3, ItemCodec.formatString(ItemUtil.cloneWithAmount(it, Math.max(1, it.getAmount()))));
-                    insI.executeUpdate();
+    private void insertWorkbench(String id, List<String> ingredients, String result, boolean replace) throws Exception {
+        try (Connection cn = db.getConnection()) {
+            cn.setAutoCommit(false);
+            try {
+                if (replace) {
+                    try (PreparedStatement removeIngredients = cn.prepareStatement(
+                            "DELETE FROM shapeless_ingredients WHERE recipe_id=?");
+                         PreparedStatement removeRecipe = cn.prepareStatement(
+                            "DELETE FROM shapeless_recipes WHERE id=?")) {
+                        removeIngredients.setString(1, id);
+                        removeIngredients.executeUpdate();
+                        removeRecipe.setString(1, id);
+                        removeRecipe.executeUpdate();
+                    }
+                }
+                try (PreparedStatement recipe = cn.prepareStatement(
+                        "INSERT INTO shapeless_recipes(id,result,created_at) VALUES(?,?,?)");
+                     PreparedStatement ingredient = cn.prepareStatement(
+                        "INSERT INTO shapeless_ingredients(recipe_id,ord,item) VALUES(?,?,?)")) {
+                    recipe.setString(1, id);
+                    recipe.setString(2, result);
+                    recipe.setLong(3, System.currentTimeMillis());
+                    recipe.executeUpdate();
+                    for (int i = 0; i < ingredients.size(); i++) {
+                        ingredient.setString(1, id);
+                        ingredient.setInt(2, i);
+                        ingredient.setString(3, ingredients.get(i));
+                        ingredient.executeUpdate();
+                    }
+                }
+                cn.commit();
+            } catch (Exception error) {
+                cn.rollback();
+                throw error;
+            }
+        }
+    }
+
+    private boolean tryInsertAnvil(String id, String left, String right, String result, int cost) {
+        try {
+            insertAnvil(id, left, right, result, cost, false);
+            return true;
+        } catch (Throwable primary) {
+            if (!"sqlite".equalsIgnoreCase(db.getActiveType()) && db.activateFailoverSqlite()) {
+                try {
+                    insertAnvil(id, left, right, result, cost, false);
+                    recordFailoverLocation();
+                    return true;
+                } catch (Throwable fallback) {
+                    primary.addSuppressed(fallback);
                 }
             }
-            return true;
-        } catch (Throwable first) {
-            if (!"sqlite".equalsIgnoreCase(db.getActiveType())) {
-                db.activateFailoverSqlite();
-                try { db.init(); } catch (Throwable ignored) {}
-                try (Connection cn = db.getConnection();
-                     PreparedStatement ins = cn.prepareStatement("INSERT INTO shapeless_recipes(id,result,created_at) VALUES(?,?,?)")) {
-                    ins.setString(1, id);
-                    ins.setString(2, ItemCodec.formatString(ItemUtil.cloneWithAmount(result, Math.max(1, result.getAmount()))));
-                    ins.setLong(3, System.currentTimeMillis());
-                    ins.executeUpdate();
-                    int ord = 0;
-                    for (ItemStack it : copy) {
-                        try (PreparedStatement insI = cn.prepareStatement("INSERT INTO shapeless_ingredients(recipe_id,ord,item) VALUES(?,?,?)")) {
-                            insI.setString(1, id);
-                            insI.setInt(2, ord++);
-                            insI.setString(3, ItemCodec.formatString(ItemUtil.cloneWithAmount(it, Math.max(1, it.getAmount()))));
-                            insI.executeUpdate();
-                        }
+            plugin.getLogger().log(Level.SEVERE, "Failed to persist anvil recipe " + id, primary);
+            return false;
+        }
+    }
+
+    private void insertAnvil(String id, String left, String right, String result, int cost, boolean replace) throws Exception {
+        try (Connection cn = db.getConnection()) {
+            cn.setAutoCommit(false);
+            try {
+                if (replace) {
+                    try (PreparedStatement remove = cn.prepareStatement("DELETE FROM anvil_recipes WHERE id=?")) {
+                        remove.setString(1, id);
+                        remove.executeUpdate();
                     }
-                    return true;
-                } catch (Throwable ignored) {}
+                }
+                try (PreparedStatement recipe = cn.prepareStatement(
+                        "INSERT INTO anvil_recipes(id,left_item,right_item,result,cost,created_at) VALUES(?,?,?,?,?,?)")) {
+                    recipe.setString(1, id);
+                    recipe.setString(2, left);
+                    recipe.setString(3, right);
+                    recipe.setString(4, result);
+                    recipe.setInt(5, cost);
+                    recipe.setLong(6, System.currentTimeMillis());
+                    recipe.executeUpdate();
+                }
+                cn.commit();
+            } catch (Exception error) {
+                cn.rollback();
+                throw error;
             }
-            return false;
         }
     }
-
-    private boolean tryInsertAnvil(String id, ItemStack left, ItemStack right, ItemStack result, int cost) {
-        try (Connection cn = db.getConnection();
-             PreparedStatement ins = cn.prepareStatement("INSERT INTO anvil_recipes(id,left_item,right_item,result,cost,created_at) VALUES(?,?,?,?,?,?)")) {
-            ins.setString(1, id);
-            ins.setString(2, ItemCodec.formatString(left));
-            ins.setString(3, ItemCodec.formatString(right));
-            ins.setString(4, ItemCodec.formatString(result));
-            ins.setInt(5, cost);
-            ins.setLong(6, System.currentTimeMillis());
-            ins.executeUpdate();
-            return true;
-        } catch (Throwable first) {
-            if (!"sqlite".equalsIgnoreCase(db.getActiveType())) {
-                db.activateFailoverSqlite();
-                try { db.init(); } catch (Throwable ignored) {}
-                try (Connection cn = db.getConnection();
-                     PreparedStatement ins = cn.prepareStatement("INSERT INTO anvil_recipes(id,left_item,right_item,result,cost,created_at) VALUES(?,?,?,?,?,?)")) {
-                    ins.setString(1, id);
-                    ins.setString(2, ItemCodec.formatString(left));
-                    ins.setString(3, ItemCodec.formatString(right));
-                    ins.setString(4, ItemCodec.formatString(result));
-                    ins.setInt(5, cost);
-                    ins.setLong(6, System.currentTimeMillis());
-                    ins.executeUpdate();
-                    return true;
-                } catch (Throwable ignored) {}
-            }
-            return false;
-        }
-    }
-
     private void registerWorkbench(String id, List<ItemStack> ingredients, ItemStack result, boolean shaped) {
         // Matched and consumed by WorkbenchListener for cross-version support.
     }
@@ -593,14 +700,15 @@ public class RecipeStorage {
         if (!alive()) return;
         try {
             ioExecutor.execute(() -> {
-                if (!alive()) return;
                 try {
                     task.run();
                 } catch (Throwable error) {
-                    if (alive()) plugin.getLogger().log(Level.SEVERE, "Asynchronous storage task failed", error);
+                    plugin.getLogger().log(Level.SEVERE, "Asynchronous storage task failed", error);
                 }
             });
-        } catch (RejectedExecutionException ignored) {
+        } catch (RejectedExecutionException rejected) {
+            plugin.getLogger().warning("Storage task arrived during shutdown; persisting it synchronously");
+            task.run();
         }
     }
 
@@ -619,19 +727,42 @@ public class RecipeStorage {
     }
 
     private void saveState(YamlConfiguration s) {
-        try { s.save(stateFile()); } catch (Throwable ignored) {}
+        try {
+            s.save(stateFile());
+        } catch (Exception error) {
+            plugin.getLogger().log(Level.SEVERE, "Could not save recipe database location in state.yml", error);
+        }
     }
 
-    private static class LoadedWorkbench {
+    private void recordFailoverLocation() {
+        YamlConfiguration state = loadState();
+        state.set("database.last_type", "sqlite");
+        saveState(state);
+    }
+
+    private static class RawWorkbench {
         final String id;
-        final List<ItemStack> ingredients;
-        final ItemStack result;
-        final boolean shaped;
-        LoadedWorkbench(String id, List<ItemStack> ingredients, ItemStack result, boolean shaped) {
+        final List<String> ingredients;
+        final String result;
+        RawWorkbench(String id, List<String> ingredients, String result) {
             this.id = id;
             this.ingredients = ingredients;
             this.result = result;
-            this.shaped = shaped;
+        }
+    }
+
+    private static class RawAnvil {
+        final String id;
+        final String left;
+        final String right;
+        final String result;
+        final int cost;
+        RawAnvil(String id, String left, String right, String result, int cost) {
+            this.id = id;
+            this.left = left;
+            this.right = right;
+            this.result = result;
+            this.cost = cost;
         }
     }
 
